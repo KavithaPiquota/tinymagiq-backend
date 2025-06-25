@@ -6,6 +6,7 @@ const templateRoutes = require("./templates/templates");
 const superadminRoutes = require("./superadmin/");
 const organizationRoutes = require("./organization");
 const orgadminRoutes = require("./orgadmin");
+const orguserRoutes = require("./orguser");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -60,6 +61,9 @@ router.get("/", (req, res) => {
 
       // Orgadmin endpoints
       orgadmin: "/api/orgadmin",
+
+      // Orguser endpoints
+      orguser: "/api/orguser",
     },
     documentation: "See README.md for detailed API documentation",
   });
@@ -134,6 +138,21 @@ try {
   });
 }
 
+// Orguser routes - with error handling
+try {
+  router.use("/orguser", orguserRoutes);
+  console.log("✅ Orguser routes loaded successfully");
+} catch (error) {
+  console.error("❌ Failed to load orguser routes:", error.message);
+  router.use("/orguser", (req, res) => {
+    res.status(503).json({
+      error: "Orguser service unavailable",
+      message:
+        "Orguser routes failed to load. Make sure orguser controller and routes are properly set up.",
+      details: error.message,
+    });
+  });
+}
 // Legacy compatibility routes (if needed)
 router.use("/templates/update", templateRoutes);
 router.use("/templates/get", templateRoutes);
