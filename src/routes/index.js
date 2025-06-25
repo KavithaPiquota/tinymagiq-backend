@@ -7,6 +7,7 @@ const superadminRoutes = require("./superadmin/");
 const organizationRoutes = require("./organization");
 const orgadminRoutes = require("./orgadmin");
 const orguserRoutes = require("./orguser");
+const authRoutes = require("./auth");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -64,6 +65,9 @@ router.get("/", (req, res) => {
 
       // Orguser endpoints
       orguser: "/api/orguser",
+
+      // Authentication endpoints
+      auth: "/api/auth/login",
     },
     documentation: "See README.md for detailed API documentation",
   });
@@ -153,6 +157,23 @@ try {
     });
   });
 }
+
+// Auth routes - with error handling
+try {
+  router.use("/auth", authRoutes);
+  console.log("✅ Auth routes loaded successfully");
+} catch (error) {
+  console.error("❌ Failed to load auth routes:", error.message);
+  router.use("/auth", (req, res) => {
+    res.status(503).json({
+      error: "Auth service unavailable",
+      message:
+        "Auth routes failed to load. Make sure auth controller and routes are properly set up.",
+      details: error.message,
+    });
+  });
+}
+
 // Legacy compatibility routes (if needed)
 router.use("/templates/update", templateRoutes);
 router.use("/templates/get", templateRoutes);
