@@ -52,7 +52,10 @@ router.get("/", (req, res) => {
       superadmin: "/api/superadmin",
 
       // Organization endpoints
-      organization: "/api/organization",
+      organization: {
+        list: "GET /api/organization",
+        create: "POST /api/organization",
+      },
     },
     documentation: "See README.md for detailed API documentation",
   });
