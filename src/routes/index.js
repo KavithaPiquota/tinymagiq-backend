@@ -5,6 +5,7 @@ const express = require("express");
 const templateRoutes = require("./templates/templates");
 const superadminRoutes = require("./superadmin/");
 const organizationRoutes = require("./organization");
+const orgadminRoutes = require("./orgadmin");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -56,6 +57,9 @@ router.get("/", (req, res) => {
         list: "GET /api/organization",
         create: "POST /api/organization",
       },
+
+      // Orgadmin endpoints
+      orgadmin: "/api/orgadmin",
     },
     documentation: "See README.md for detailed API documentation",
   });
@@ -109,6 +113,22 @@ try {
       error: "Organization service unavailable",
       message:
         "Organization routes failed to load. Make sure organization controller and routes are properly set up.",
+      details: error.message,
+    });
+  });
+}
+
+// Orgadmin routes - with error handling
+try {
+  router.use("/orgadmin", orgadminRoutes);
+  console.log("✅ Orgadmin routes loaded successfully");
+} catch (error) {
+  console.error("❌ Failed to load orgadmin routes:", error.message);
+  router.use("/orgadmin", (req, res) => {
+    res.status(503).json({
+      error: "Orgadmin service unavailable",
+      message:
+        "Orgadmin routes failed to load. Make sure orgadmin controller and routes are properly set up.",
       details: error.message,
     });
   });
