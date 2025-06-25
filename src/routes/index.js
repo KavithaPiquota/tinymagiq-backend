@@ -1,18 +1,23 @@
 // src/routes/index.js
-const express = require('express');
+const express = require("express");
 
 // Import routes
-const templateRoutes = require('./templates/templates');
+const templateRoutes = require("./templates/templates");
+const superadminRoutes = require("./superadmin/");
+const organizationRoutes = require("./organization");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
 try {
-    const { sanitizeRequest: sanitize } = require('../middleware/validation');
-    sanitizeRequest = sanitize || ((req, res, next) => next());
-    console.log('✅ Validation middleware loaded successfully');
+  const { sanitizeRequest: sanitize } = require("../middleware/validation");
+  sanitizeRequest = sanitize || ((req, res, next) => next());
+  console.log("✅ Validation middleware loaded successfully");
 } catch (error) {
-    console.warn('❌ Validation middleware not found, using no-op sanitizer:', error.message);
-    sanitizeRequest = (req, res, next) => next();
+  console.warn(
+    "❌ Validation middleware not found, using no-op sanitizer:",
+    error.message
+  );
+  sanitizeRequest = (req, res, next) => next();
 }
 
 const router = express.Router();
@@ -21,55 +26,94 @@ const router = express.Router();
 router.use(sanitizeRequest);
 
 // API version info
-router.get('/', (req, res) => {
-    res.json({
-        name: 'TinyMagiq API',
-        version: '1.0.0',
-        description: 'API for managing templates and chat conversations',
-        endpoints: {
-            // Template endpoints
-            templates: '/api/templates',
-            defaults: '/api/templates/defaults',
-            list: '/api/templates/list',
-            process: '/api/templates/process',
-            restore: '/api/templates/restore',
-            
-            // Chat endpoints
-            chat: '/api/chat',
-            latestChat: '/api/chat/latest/:user_id',
-            chatCounts: '/api/chat/counts/:user_id',
-            userChats: '/api/chat/user/:user_id',
-            
-            // Utility endpoints
-            health: '/health'
-        },
-        documentation: 'See README.md for detailed API documentation'
-    });
+router.get("/", (req, res) => {
+  res.json({
+    name: "TinyMagiq API",
+    version: "1.0.0",
+    description: "API for managing templates and chat conversations",
+    endpoints: {
+      // Template endpoints
+      templates: "/api/templates",
+      defaults: "/api/templates/defaults",
+      list: "/api/templates/list",
+      process: "/api/templates/process",
+      restore: "/api/templates/restore",
+
+      // Chat endpoints
+      chat: "/api/chat",
+      latestChat: "/api/chat/latest/:user_id",
+      chatCounts: "/api/chat/counts/:user_id",
+      userChats: "/api/chat/user/:user_id",
+
+      // Utility endpoints
+      health: "/health",
+
+      // Superadmin endpoints
+      superadmin: "/api/superadmin",
+
+      // Organization endpoints
+      organization: "/api/organization",
+    },
+    documentation: "See README.md for detailed API documentation",
+  });
 });
 
 // Template management routes
-router.use('/templates', templateRoutes);
+router.use("/templates", templateRoutes);
 
 // Chat routes - with error handling
 try {
-    const chatRoutes = require('./chat/chat');
-    router.use('/chat', chatRoutes);
-    console.log('✅ Chat routes loaded successfully');
+  const chatRoutes = require("./chat/chat");
+  router.use("/chat", chatRoutes);
+  console.log("✅ Chat routes loaded successfully");
 } catch (error) {
-    console.error('❌ Failed to load chat routes:', error.message);
-    // Provide a fallback route
-    router.use('/chat', (req, res) => {
-        res.status(503).json({
-            error: 'Chat service unavailable',
-            message: 'Chat routes failed to load. Make sure chat controller and routes are properly set up.',
-            details: error.message
-        });
+  console.error("❌ Failed to load chat routes:", error.message);
+  // Provide a fallback route
+  router.use("/chat", (req, res) => {
+    res.status(503).json({
+      error: "Chat service unavailable",
+      message:
+        "Chat routes failed to load. Make sure chat controller and routes are properly set up.",
+      details: error.message,
     });
+  });
+}
+
+// Superadmin routes - with error handling
+try {
+  router.use("/superadmin", superadminRoutes);
+  console.log("✅ Superadmin routes loaded successfully");
+} catch (error) {
+  console.error("❌ Failed to load superadmin routes:", error.message);
+  router.use("/superadmin", (req, res) => {
+    res.status(503).json({
+      error: "Superadmin service unavailable",
+      message:
+        "Superadmin routes failed to load. Make sure superadmin controller and routes are properly set up.",
+      details: error.message,
+    });
+  });
+}
+
+// Organization routes - with error handling
+try {
+  router.use("/organization", organizationRoutes);
+  console.log("✅ Organization routes loaded successfully");
+} catch (error) {
+  console.error("❌ Failed to load organization routes:", error.message);
+  router.use("/organization", (req, res) => {
+    res.status(503).json({
+      error: "Organization service unavailable",
+      message:
+        "Organization routes failed to load. Make sure organization controller and routes are properly set up.",
+      details: error.message,
+    });
+  });
 }
 
 // Legacy compatibility routes (if needed)
-router.use('/templates/update', templateRoutes);
-router.use('/templates/get', templateRoutes);
-router.use('/templates/delete', templateRoutes);
+router.use("/templates/update", templateRoutes);
+router.use("/templates/get", templateRoutes);
+router.use("/templates/delete", templateRoutes);
 
 module.exports = router;
