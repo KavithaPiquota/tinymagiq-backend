@@ -9,6 +9,7 @@ const orgadminRoutes = require("./orgadmin");
 const orguserRoutes = require("./orguser");
 const authRoutes = require("./auth");
 const mentorsRoutes = require("./mentors");
+const conceptsRoutes = require("./concepts");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -75,6 +76,13 @@ router.get("/", (req, res) => {
         create: "POST /api/mentors",
         update: "PUT /api/mentors/:mentor_id",
         delete: "DELETE /api/mentors/:mentor_id",
+      },
+
+      // Concepts endpoints
+      concepts: {
+        list: "GET /api/concepts",
+        create: "POST /api/concepts",
+        update: "PUT /api/concepts/:concept_id",
       },
     },
     documentation: "See README.md for detailed API documentation",
@@ -184,6 +192,9 @@ try {
 
 // Mentors routes
 router.use("/mentors", mentorsRoutes);
+
+// Concepts routes
+router.use("/concepts", conceptsRoutes);
 
 // Legacy compatibility routes (if needed)
 router.use("/templates/update", templateRoutes);
