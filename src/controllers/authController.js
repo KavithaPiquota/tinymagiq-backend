@@ -1,24 +1,17 @@
+// src/controllers/authController.js
 const { pool } = require("../config/database");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
 // Controller for user login
 const login = async (req, res) => {
-  const { username, email, password } = req.body;
+  const { login_id, password } = req.body;
 
   // Input validation
-  if (!password || (!username && !email)) {
-    return res
-      .status(400)
-      .json({ error: "Password and either username or email are required" });
-  }
-
-  // Validate email format if provided
-  if (email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: "Invalid email format" });
-    }
+  if (!login_id || !password) {
+    return res.status(400).json({
+      error: "Login ID (username or email) and password are required",
+    });
   }
 
   try {
@@ -27,8 +20,8 @@ const login = async (req, res) => {
       `SELECT u.user_id, u.email, u.username, u.password_hash, u.first_name, u.last_name, u.organization_id, u.is_active, r.name AS role_name
              FROM users u
              JOIN roles r ON u.role_id = r.role_id
-             WHERE u.email = $1 OR u.username = $2`,
-      [email || "", username || ""]
+             WHERE u.email = $1 OR u.username = $1`,
+      [login_id]
     );
 
     if (userQuery.rows.length === 0) {

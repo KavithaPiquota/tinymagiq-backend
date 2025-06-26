@@ -8,6 +8,7 @@ const organizationRoutes = require("./organization");
 const orgadminRoutes = require("./orgadmin");
 const orguserRoutes = require("./orguser");
 const authRoutes = require("./auth");
+const mentorsRoutes = require("./mentors");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -68,6 +69,13 @@ router.get("/", (req, res) => {
 
       // Authentication endpoints
       auth: "/api/auth/login",
+
+      mentors: {
+        list: "GET /api/mentors",
+        create: "POST /api/mentors",
+        update: "PUT /api/mentors/:mentor_id",
+        delete: "DELETE /api/mentors/:mentor_id",
+      },
     },
     documentation: "See README.md for detailed API documentation",
   });
@@ -173,6 +181,9 @@ try {
     });
   });
 }
+
+// Mentors routes
+router.use("/mentors", mentorsRoutes);
 
 // Legacy compatibility routes (if needed)
 router.use("/templates/update", templateRoutes);
