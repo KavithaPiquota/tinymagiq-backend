@@ -10,6 +10,7 @@ const orguserRoutes = require("./orguser");
 const authRoutes = require("./auth");
 const mentorsRoutes = require("./mentors");
 const conceptsRoutes = require("./concepts");
+const batchesRoutes = require("./batches");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -83,6 +84,12 @@ router.get("/", (req, res) => {
         list: "GET /api/concepts",
         create: "POST /api/concepts",
         update: "PUT /api/concepts/:concept_id",
+      },
+      // Batches endpoints
+      batches: {
+        list: "GET /api/batches",
+        create: "POST /api/batches",
+        update: "PUT /api/batches/:batch_id",
       },
     },
     documentation: "See README.md for detailed API documentation",
@@ -195,6 +202,9 @@ router.use("/mentors", mentorsRoutes);
 
 // Concepts routes
 router.use("/concepts", conceptsRoutes);
+
+// Batches routes
+router.use("/batches", batchesRoutes);
 
 // Legacy compatibility routes (if needed)
 router.use("/templates/update", templateRoutes);
