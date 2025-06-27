@@ -2,16 +2,16 @@ const { pool } = require("../config/database");
 
 // Get orguser details (batches, pods, mentors, concepts)
 const getOrguserDetails = async (req, res) => {
-  const { login_id } = req.params;
+  const { email } = req.params;
 
   try {
     // Verify user exists and is an orguser
     const userResult = await pool.query(
-      `SELECT u.user_id, u.login_id, u.role, u.org_id, o.name AS organization_name
+      `SELECT u.user_id, u.email, u.role, u.org_id, o.name AS organization_name
        FROM users u
        JOIN organizations o ON u.org_id = o.org_id
-       WHERE u.login_id = $1 AND u.role = 'orguser' AND u.isActive = TRUE`,
-      [login_id]
+       WHERE u.email = $1 AND u.role = 'orguser' AND u.isActive = TRUE`,
+      [email]
     );
 
     if (userResult.rows.length === 0) {
@@ -34,9 +34,9 @@ const getOrguserDetails = async (req, res) => {
 
     // Get mentors and concepts for each pod
     const userDetails = {
-      login_id: user.login_id,
+      email: user.email,
       organization_name: user.organization_name,
-      pods: []
+      pods: [],
     };
 
     for (const pod of pods) {
@@ -64,7 +64,7 @@ const getOrguserDetails = async (req, res) => {
         batch_id: pod.batch_id,
         batch_name: pod.batch_name,
         mentors: mentorsResult.rows,
-        concepts: conceptsResult.rows
+        concepts: conceptsResult.rows,
       });
     }
 
