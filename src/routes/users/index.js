@@ -3,6 +3,6 @@ const router = express.Router();
 const usersController = require("../../controllers/usersController");
 
 // Get orguser details
-router.get("/:login_id/details", usersController.getOrguserDetails);
+router.get("/:email/details", usersController.getOrguserDetails);
 
 module.exports = router;
