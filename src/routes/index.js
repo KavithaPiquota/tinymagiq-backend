@@ -11,6 +11,11 @@ const authRoutes = require("./auth");
 const mentorsRoutes = require("./mentors");
 const conceptsRoutes = require("./concepts");
 const batchesRoutes = require("./batches");
+const podsRoutes = require("./pods");
+const batchConceptsRoutes = require("./batch-concepts");
+const podUsersRoutes = require("./pod-users");
+const podMentorsRoutes = require("./pod-mentors");
+const usersRoutes = require("./users");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -90,6 +95,40 @@ router.get("/", (req, res) => {
         list: "GET /api/batches",
         create: "POST /api/batches",
         update: "PUT /api/batches/:batch_id",
+        byOrganization: "GET /api/batches/organization",
+      },
+
+      // Pods endpoints
+      pods: {
+        list: "GET /api/pods",
+        create: "POST /api/pods",
+        update: "PUT /api/pods/:pod_id",
+        byOrganization: "GET /api/pods/organization",
+        byOrgAndBatch: "GET /api/pods/organization/batch",
+        byBatch: "GET /api/pods/batch",
+        byBatchId: "GET /api/pods/batch_id",
+        byOrgId: "GET /api/pods/org_id",
+      },
+
+      // Batch-Concepts endpoints
+      batchConcepts: {
+        assign: "POST /api/batch-concepts",
+        getPodConcepts: "GET /api/batch-concepts/pods/:pod_id/concepts",
+        remove: "DELETE /api/batch-concepts",
+      },
+
+      // Pod-Users endpoints
+      podUsers: {
+        assign: "POST /api/pod-users",
+        getPodUsers: "GET /api/pod-users/pods/:pod_id/users",
+        remove: "DELETE /api/pod-users",
+      },
+
+      // Pod-Mentors endpoints
+      podMentors: {
+        assign: "POST /api/pod-mentors",
+        getPodMentors: "GET /api/pod-mentors/pods/:pod_id/mentors",
+        remove: "DELETE /api/pod-mentors",
       },
     },
     documentation: "See README.md for detailed API documentation",
@@ -205,6 +244,21 @@ router.use("/concepts", conceptsRoutes);
 
 // Batches routes
 router.use("/batches", batchesRoutes);
+
+// Pods routes
+router.use("/pods", podsRoutes);
+
+// Batch-Concepts routes
+router.use("/batch-concepts", batchConceptsRoutes);
+
+// Pod-Users routes
+router.use("/pod-users", podUsersRoutes);
+
+// Pod-Mentors routes
+router.use("/pod-mentors", podMentorsRoutes);
+
+// Users Route
+router.use("/users", usersRoutes);
 
 // Legacy compatibility routes (if needed)
 router.use("/templates/update", templateRoutes);
