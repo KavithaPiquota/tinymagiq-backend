@@ -459,7 +459,7 @@ const loginUser = async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email, u.username, u.first_name, u.last_name, u.password, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.first_name, u.last_name, u.password, u.is_active " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -481,6 +481,14 @@ const loginUser = async (req, res) => {
         success: false,
         error: "Forbidden",
         message: "Account is inactive",
+      });
+    }
+
+    if (user.organization_id !== null && !user.org_is_active) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Organization is inactive",
       });
     }
 
