@@ -6,6 +6,7 @@ const rolesRoutes = require("./roles/roles");
 const organizationsRoutes = require("./organizations/organizations");
 const usersRoutes = require("./users/users");
 const conceptsRoutes = require("./concepts/concepts");
+const batchesRoutes = require("./batches/batches");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -74,6 +75,9 @@ router.use("/users", usersRoutes);
 
 // Concept management routes
 router.use("/concepts", conceptsRoutes);
+
+// Batch management routes
+router.use("/batches", batchesRoutes);
 
 // Template management routes
 router.use("/templates", templateRoutes);

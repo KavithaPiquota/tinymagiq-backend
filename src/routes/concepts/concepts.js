@@ -11,6 +11,9 @@ router.put("/:concept_id", conceptsController.updateConcept);
 // Get all concepts
 router.get("/", conceptsController.getAllConcepts);
 
+// Get active concepts
+router.get("/active", conceptsController.getActiveConcepts);
+
 // Get concept by concept_id
 router.get("/:concept_id", conceptsController.getConceptById);
 
