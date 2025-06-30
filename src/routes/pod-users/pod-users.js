@@ -16,5 +16,15 @@ router.get("/user/email/:email", podUsersController.getOrguserDetailsByEmail);
 
 // Get complete orguser details by user_id
 router.get("/user/id/:user_id", podUsersController.getOrguserDetailsByUserId);
+// Get unaasigned user
+router.get(
+  "/unassigned/:organization_identifier",
+  podUsersController.getUnassignedOrgusers
+);
+// Get aasigned user
+router.get(
+  "/all/:organization_identifier",
+  podUsersController.getAllOrgusersWithAssignmentStatus
+);
 
 module.exports = router;
