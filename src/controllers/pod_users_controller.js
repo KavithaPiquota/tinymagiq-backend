@@ -40,7 +40,7 @@ const getOrganizationIdByName = async (organization_name) => {
 
 const getBatchIdByName = async (batch_name, organization_id) => {
   const result = await pool.query(
-    "SELECT batch_id, batch_size, pod_size, is_active FROM batches WHERE batch_name = $1 AND organization_id = $2",
+    "SELECT batch_id, batch_size, is_active FROM batches WHERE batch_name = $1 AND organization_id = $2",
     [batch_name, organization_id]
   );
   if (result.rows.length === 0) {
@@ -134,19 +134,6 @@ const validateBatchSize = async (batch_id, batch_size, additional_users) => {
   }
 };
 
-const validatePodSize = async (pod_id, pod_size, additional_users) => {
-  const result = await pool.query(
-    "SELECT COUNT(*) as user_count FROM pod_users pu JOIN pods p ON pu.pod_id = p.pod_id WHERE p.pod_id = $1 AND p.is_active = TRUE",
-    [pod_id]
-  );
-  const user_count = parseInt(result.rows[0].user_count);
-  if (user_count + additional_users > pod_size) {
-    throw new Error(
-      `Pod size limit of ${pod_size} would be exceeded (current: ${user_count}, trying to add: ${additional_users})`
-    );
-  }
-};
-
 const checkUserAssignment = async (user_id) => {
   const result = await pool.query(
     "SELECT pod_id FROM pod_users WHERE user_id = $1",
@@ -205,7 +192,6 @@ const addUserToPod = async (req, res) => {
     const batch = await getBatchIdByName(batch_name, organization_id);
     const pod_id = await getPodIdByName(pod_name, batch.batch_id);
     await validateBatchSize(batch.batch_id, batch.batch_size, users.length);
-    await validatePodSize(pod_id, batch.pod_size, users.length);
 
     const validatedUsers = await validateUsers(users, organization_id);
 
@@ -238,7 +224,7 @@ const addUserToPod = async (req, res) => {
     }
 
     const podResult = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.pod_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -283,7 +269,6 @@ const addUserToPod = async (req, res) => {
             batch_id: batch.batch_id,
             batch_name: pod.batch_name,
             batch_size: pod.batch_size,
-            pod_size: pod.pod_size,
             is_active: pod.batch_is_active,
             organization_name: pod.organization_name,
             concepts: batchConcepts.rows,
@@ -310,7 +295,6 @@ const addUserToPod = async (req, res) => {
         "User not found or not an orguser",
         "Cannot assign users to an inactive batch",
         "Cannot assign users to an inactive pod",
-        "Pod size limit reached",
         "Batch size limit reached",
         "User identifier (email, username, or first_name and last_name) is required",
       ].includes(error.message) ||
@@ -379,7 +363,7 @@ const updatePodUser = async (req, res) => {
         ? await getBatchIdByName(batch_name, organization_id)
         : await pool
             .query(
-              "SELECT batch_id, batch_size, pod_size, is_active FROM batches WHERE batch_id = $1",
+              "SELECT batch_id, batch_size, is_active FROM batches WHERE batch_id = $1",
               [current_batch_id]
             )
             .then((res) => res.rows[0]);
@@ -390,9 +374,6 @@ const updatePodUser = async (req, res) => {
 
       if (batch_id !== current_batch_id) {
         await validateBatchSize(batch_id, batch.batch_size, 1);
-      }
-      if (pod_id !== current_pod_id) {
-        await validatePodSize(pod_id, batch.pod_size, 1);
       }
     }
 
@@ -461,7 +442,7 @@ const updatePodUser = async (req, res) => {
     }
 
     const podResult = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.pod_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -499,7 +480,7 @@ const updatePodUser = async (req, res) => {
         pod_user_id: podUser.pod_user_id,
         user: userResult.rows[0],
         pod: {
-          pod_id: epicod.pod_id,
+          pod_id: pod.pod_id,
           pod_name: pod.pod_name,
           is_active: pod.is_active,
           created_at: pod.created_at,
@@ -514,7 +495,6 @@ const updatePodUser = async (req, res) => {
           batch_id: pod.batch_id,
           batch_name: pod.batch_name,
           batch_size: pod.batch_size,
-          pod_size: pod.pod_size,
           is_active: pod.batch_is_active,
           organization_name: pod.organization_name,
           concepts: batchConcepts.rows,
@@ -532,10 +512,9 @@ const updatePodUser = async (req, res) => {
         "Pod not found",
         "Cannot assign users to an inactive batch",
         "Cannot assign users to an inactive pod",
-        "Pod size limit reached",
+        "Batch size limit reached",
         "Invalid status for concept",
         "Concept is not assigned to the batch",
-        "Batch size limit reached",
       ].includes(error.message)
     ) {
       return res.status(400).json({
@@ -581,7 +560,7 @@ const getOrguserDetails = async (req, res) => {
     if (podUserResult.rows.length > 0) {
       const podUser = podUserResult.rows[0];
       const podResult = await pool.query(
-        "SELECT p.*, b.batch_name, b.batch_size, b.pod_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+        "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
           "FROM pods p " +
           "JOIN batches b ON p.batch_id = b.batch_id " +
           "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -619,7 +598,6 @@ const getOrguserDetails = async (req, res) => {
           batch_id: pod.batch_id,
           batch_name: pod.batch_name,
           batch_size: pod.batch_size,
-          pod_size: pod.pod_size,
           is_active: pod.batch_is_active,
           organization_name: pod.organization_name,
           concepts: batchConcepts.rows,
@@ -677,7 +655,7 @@ const getOrguserDetailsByEmail = async (req, res) => {
     if (podUserResult.rows.length > 0) {
       const podUser = podUserResult.rows[0];
       const podResult = await pool.query(
-        "SELECT p.*, b.batch_name, b.batch_size, b.pod_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+        "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
           "FROM pods p " +
           "JOIN batches b ON p.batch_id = b.batch_id " +
           "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -715,7 +693,6 @@ const getOrguserDetailsByEmail = async (req, res) => {
           batch_id: pod.batch_id,
           batch_name: pod.batch_name,
           batch_size: pod.batch_size,
-          pod_size: pod.pod_size,
           is_active: pod.batch_is_active,
           organization_name: pod.organization_name,
           concepts: batchConcepts.rows,
@@ -773,7 +750,7 @@ const getOrguserDetailsByUserId = async (req, res) => {
     if (podUserResult.rows.length > 0) {
       const podUser = podUserResult.rows[0];
       const podResult = await pool.query(
-        "SELECT p.*, b.batch_name, b.batch_size, b.pod_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+        "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
           "FROM pods p " +
           "JOIN batches b ON p.batch_id = b.batch_id " +
           "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -811,7 +788,6 @@ const getOrguserDetailsByUserId = async (req, res) => {
           batch_id: pod.batch_id,
           batch_name: pod.batch_name,
           batch_size: pod.batch_size,
-          pod_size: pod.pod_size,
           is_active: pod.batch_is_active,
           organization_name: pod.organization_name,
           concepts: batchConcepts.rows,
@@ -853,9 +829,8 @@ const getUnassignedOrgusers = async (req, res) => {
       "SELECT u.user_id, u.first_name, u.last_name, u.email, u.username " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
-        "JOIN users ou ON u.user_id = ou.user_id " +
         "LEFT JOIN pod_users pu ON u.user_id = pu.user_id " +
-        "WHERE ou.organization_id = $1 AND r.role = $2 AND pu.user_id IS NULL",
+        "WHERE u.organization_id = $1 AND r.role = $2 AND pu.user_id IS NULL",
       [organization_id, "orguser"]
     );
 
@@ -895,17 +870,16 @@ const getAllOrgusersWithAssignmentStatus = async (req, res) => {
       "SELECT u.user_id, u.first_name, u.last_name, u.email, u.username, " +
         "pu.pod_user_id, pu.pod_id, pu.created_at AS pod_assigned_at, " +
         "p.pod_name, p.is_active AS pod_is_active, p.created_at AS pod_created_at, " +
-        "b.batch_id, b.batch_name, b.batch_size, b.pod_size, b.is_active AS batch_is_active, " +
+        "b.batch_id, b.batch_name, b.batch_size, b.is_active AS batch_is_active, " +
         "o.organization_name, m.user_id AS mentor_id, m.first_name AS mentor_first_name, m.last_name AS mentor_last_name, m.email AS mentor_email " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
-        "JOIN users ou ON u.user_id = ou.user_id " +
         "LEFT JOIN pod_users pu ON u.user_id = pu.user_id " +
         "LEFT JOIN pods p ON pu.pod_id = p.pod_id " +
         "LEFT JOIN batches b ON p.batch_id = b.batch_id " +
         "LEFT JOIN users m ON p.mentor_id = m.user_id " +
         "LEFT JOIN organizations o ON p.organization_id = o.organization_id " +
-        "WHERE ou.organization_id = $1 AND r.role = $2",
+        "WHERE u.organization_id = $1 AND r.role = $2",
       [organization_id, "orguser"]
     );
 
@@ -948,7 +922,6 @@ const getAllOrgusersWithAssignmentStatus = async (req, res) => {
             batch_id: row.batch_id,
             batch_name: row.batch_name,
             batch_size: row.batch_size,
-            pod_size: row.pod_size,
             is_active: row.batch_is_active,
             organization_name: row.organization_name,
             concepts: batchConcepts.rows,
