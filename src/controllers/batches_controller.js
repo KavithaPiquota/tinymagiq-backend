@@ -31,30 +31,23 @@ const addBatch = async (req, res) => {
     organization_name,
     batch_name,
     batch_size,
-    pod_size,
     is_active = true,
     concept_ids,
   } = req.body;
 
-  if (!organization_name || !batch_name || !batch_size || !pod_size) {
+  if (!organization_name || !batch_name || !batch_size) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message:
-        "Organization name, batch name, batch size, and pod size are required",
+      message: "Organization name, batch name, and batch size are required",
     });
   }
 
-  if (
-    !Number.isInteger(batch_size) ||
-    batch_size <= 0 ||
-    !Number.isInteger(pod_size) ||
-    pod_size <= 0
-  ) {
+  if (!Number.isInteger(batch_size) || batch_size <= 0) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: "Batch size and pod size must be positive integers",
+      message: "Batch size must be a positive integer",
     });
   }
 
@@ -64,8 +57,8 @@ const addBatch = async (req, res) => {
 
     await pool.query("BEGIN");
     const batchResult = await pool.query(
-      "INSERT INTO batches (organization_id, batch_name, batch_size, pod_size, is_active) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [organization_id, batch_name, batch_size, pod_size, is_active]
+      "INSERT INTO batches (organization_id, batch_name, batch_size, is_active) VALUES ($1, $2, $3, $4) RETURNING *",
+      [organization_id, batch_name, batch_size, is_active]
     );
 
     const batch = batchResult.rows[0];
@@ -123,20 +116,13 @@ const addBatch = async (req, res) => {
 
 const updateBatch = async (req, res) => {
   const { batch_id } = req.params;
-  const {
-    organization_name,
-    batch_name,
-    batch_size,
-    pod_size,
-    is_active,
-    concept_ids,
-  } = req.body;
+  const { organization_name, batch_name, batch_size, is_active, concept_ids } =
+    req.body;
 
   if (
     !organization_name &&
     !batch_name &&
     !batch_size &&
-    !pod_size &&
     is_active === undefined &&
     !concept_ids
   ) {
@@ -155,17 +141,6 @@ const updateBatch = async (req, res) => {
       success: false,
       error: "Bad request",
       message: "Batch size must be a positive integer",
-    });
-  }
-
-  if (
-    pod_size !== undefined &&
-    (!Number.isInteger(pod_size) || pod_size <= 0)
-  ) {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: "Pod size must be a positive integer",
     });
   }
 
@@ -190,10 +165,6 @@ const updateBatch = async (req, res) => {
     if (batch_size !== undefined) {
       fields.push(`batch_size = $${index++}`);
       values.push(batch_size);
-    }
-    if (pod_size !== undefined) {
-      fields.push(`pod_size = $${index++}`);
-      values.push(pod_size);
     }
     if (is_active !== undefined) {
       fields.push(`is_active = $${index++}`);
@@ -299,7 +270,7 @@ const updateBatch = async (req, res) => {
 const getAllBatches = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT b.*, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id ORDER BY b.batch_id"
+      "SELECT b.batch_id, b.organization_id, b.batch_name, b.batch_size, b.is_active, b.created_at, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id ORDER BY b.batch_id"
     );
     const batches = result.rows;
     for (let batch of batches) {
@@ -329,7 +300,7 @@ const getBatchesByOrganization = async (req, res) => {
   try {
     const organization_id = await getOrganizationIdByName(organization_name);
     const result = await pool.query(
-      "SELECT b.*, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.organization_id = $1 ORDER BY b.batch_id",
+      "SELECT b.batch_id, b.organization_id, b.batch_name, b.batch_size, b.is_active, b.created_at, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.organization_id = $1 ORDER BY b.batch_id",
       [organization_id]
     );
     const batches = result.rows;
@@ -366,7 +337,7 @@ const getBatchByName = async (req, res) => {
   const { batch_name } = req.params;
   try {
     const result = await pool.query(
-      "SELECT b.*, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.batch_name = $1",
+      "SELECT b.batch_id, b.organization_id, b.batch_name, b.batch_size, b.is_active, b.created_at, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.batch_name = $1",
       [batch_name]
     );
     if (result.rows.length === 0) {
@@ -401,7 +372,7 @@ const getBatchById = async (req, res) => {
   const { batch_id } = req.params;
   try {
     const result = await pool.query(
-      "SELECT b.*, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.batch_id = $1",
+      "SELECT b.batch_id, b.organization_id, b.batch_name, b.batch_size, b.is_active, b.created_at, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.batch_id = $1",
       [batch_id]
     );
     if (result.rows.length === 0) {
