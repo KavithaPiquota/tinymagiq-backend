@@ -168,7 +168,7 @@ const validateUsers = async (users, organization_id) => {
     );
     await checkUserAssignment(userData.user_id);
     const orgCheck = await pool.query(
-      "SELECT 1 FROM organization_users WHERE user_id = $1 AND organization_id = $2",
+      "SELECT 1 FROM users WHERE user_id = $1 AND organization_id = $2",
       [userData.user_id, organization_id]
     );
     if (orgCheck.rows.length === 0) {
@@ -853,7 +853,7 @@ const getUnassignedOrgusers = async (req, res) => {
       "SELECT u.user_id, u.first_name, u.last_name, u.email, u.username " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
-        "JOIN organization_users ou ON u.user_id = ou.user_id " +
+        "JOIN users ou ON u.user_id = ou.user_id " +
         "LEFT JOIN pod_users pu ON u.user_id = pu.user_id " +
         "WHERE ou.organization_id = $1 AND r.role = $2 AND pu.user_id IS NULL",
       [organization_id, "orguser"]
@@ -899,7 +899,7 @@ const getAllOrgusersWithAssignmentStatus = async (req, res) => {
         "o.organization_name, m.user_id AS mentor_id, m.first_name AS mentor_first_name, m.last_name AS mentor_last_name, m.email AS mentor_email " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
-        "JOIN organization_users ou ON u.user_id = ou.user_id " +
+        "JOIN users ou ON u.user_id = ou.user_id " +
         "LEFT JOIN pod_users pu ON u.user_id = pu.user_id " +
         "LEFT JOIN pods p ON pu.pod_id = p.pod_id " +
         "LEFT JOIN batches b ON p.batch_id = b.batch_id " +
