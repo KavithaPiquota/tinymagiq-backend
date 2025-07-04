@@ -11,6 +11,7 @@ const podsRoutes = require("./pods/pods");
 const podUsersRoutes = require("./pod-users/pod-users");
 const mentorRouter = require("./mentor/mentor");
 const orgadminRoutes = require("./orgadmin/orgadmin");
+const apikeyRoutes = require("./apikey/apikey");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -94,6 +95,9 @@ router.use("/mentor", mentorRouter);
 
 // Mount orgadmin routes at /orgadmin
 router.use("/orgadmin", orgadminRoutes);
+
+// Api Key routes at /orgadmin
+router.use("/apikey", apikeyRoutes);
 
 // Template management routes
 router.use("/templates", templateRoutes);
