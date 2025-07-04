@@ -49,6 +49,7 @@ const getBatchesByOrgadmin = async (req, res) => {
         [batch.batch_id]
       );
       batch.concepts = conceptsResult.rows;
+      batch.concept_count = conceptsResult.rows.length; // Add concept count
     }
     res.json({
       success: true,
@@ -88,6 +89,14 @@ const getPodsByOrgadmin = async (req, res) => {
     );
     const pods = podsResult.rows;
     for (let pod of pods) {
+      // Get user count for each pod
+      const usersResult = await pool.query(
+        "SELECT COUNT(*) as user_count FROM pod_users WHERE pod_id = $1",
+        [pod.pod_id]
+      );
+      pod.user_count = parseInt(usersResult.rows[0].user_count);
+
+      // Get assigned concepts
       const conceptsResult = await pool.query(
         "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id " +
           "WHERE bc.batch_id = $1",
