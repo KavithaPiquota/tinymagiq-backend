@@ -10,6 +10,7 @@ const batchesRoutes = require("./batches/batches");
 const podsRoutes = require("./pods/pods");
 const podUsersRoutes = require("./pod-users/pod-users");
 const mentorRouter = require("./mentor/mentor");
+const orgadminRoutes = require("./orgadmin/orgadmin");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -90,6 +91,9 @@ router.use("/pod-users", podUsersRoutes);
 
 // Mount mentor routes at /mentor
 router.use("/mentor", mentorRouter);
+
+// Mount orgadmin routes at /orgadmin
+router.use("/orgadmin", orgadminRoutes);
 
 // Template management routes
 router.use("/templates", templateRoutes);
