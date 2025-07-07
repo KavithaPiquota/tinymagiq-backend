@@ -134,42 +134,57 @@ const validateBatchSize = async (batch_id, batch_size, additional_users) => {
   }
 };
 
-const checkUserAssignment = async (user_id) => {
+const checkUserAssignment = async (user_id, user_email) => {
   const result = await pool.query(
-    "SELECT pod_id FROM pod_users WHERE user_id = $1",
+    "SELECT pu.pod_id, p.pod_name FROM pod_users pu JOIN pods p ON pu.pod_id = p.pod_id WHERE pu.user_id = $1",
     [user_id]
   );
   if (result.rows.length > 0) {
-    throw new Error(`User ${user_id} is already assigned to a pod`);
+    const pod_name = result.rows[0].pod_name;
+    throw new Error(
+      `User with email ${user_email} is already assigned to pod '${pod_name}'`
+    );
   }
 };
 
-const validateUsers = async (users, organization_id) => {
+const validateUsers = async (users, organization_id, pod_id) => {
   const validatedUsers = [];
+  const errors = [];
   for (const user of users) {
     const { user_identifier, first_name, last_name } = user;
-    const userData = await getUserIdByIdentifier(
-      user_identifier,
-      first_name,
-      last_name
-    );
-    await checkUserAssignment(userData.user_id);
-    const orgCheck = await pool.query(
-      "SELECT 1 FROM users WHERE user_id = $1 AND organization_id = $2",
-      [userData.user_id, organization_id]
-    );
-    if (orgCheck.rows.length === 0) {
-      throw new Error(
-        `User ${userData.email || userData.username} is not associated with the organization`
+    try {
+      const userData = await getUserIdByIdentifier(
+        user_identifier,
+        first_name,
+        last_name
       );
+      await checkUserAssignment(userData.user_id, userData.email);
+      const orgCheck = await pool.query(
+        "SELECT 1 FROM users WHERE user_id = $1 AND organization_id = $2",
+        [userData.user_id, organization_id]
+      );
+      if (orgCheck.rows.length === 0) {
+        throw new Error(
+          `User ${userData.email || userData.username} is not associated with the organization`
+        );
+      }
+      validatedUsers.push(userData);
+    } catch (error) {
+      console.log(
+        `Validation failed for user ${user_identifier || `${first_name} ${last_name}`}: ${error.message}`
+      );
+      errors.push({
+        user: user_identifier || `${first_name} ${last_name}`,
+        error: error.message,
+      });
     }
-    validatedUsers.push(userData);
   }
-  return validatedUsers;
+  return { validatedUsers, errors };
 };
 
 const addUserToPod = async (req, res) => {
   const { organization_name, batch_name, pod_name, users } = req.body;
+  let client;
 
   if (
     !organization_name ||
@@ -188,42 +203,131 @@ const addUserToPod = async (req, res) => {
   }
 
   try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+
     const organization_id = await getOrganizationIdByName(organization_name);
+    console.log(`Found organization_id: ${organization_id}`);
     const batch = await getBatchIdByName(batch_name, organization_id);
+    console.log(`Found batch_id: ${batch.batch_id}`);
     const pod_id = await getPodIdByName(pod_name, batch.batch_id);
+    console.log(`Found pod_id: ${pod_id}`);
     await validateBatchSize(batch.batch_id, batch.batch_size, users.length);
+    console.log(`Batch size validated`);
 
-    const validatedUsers = await validateUsers(users, organization_id);
+    const { validatedUsers, errors } = await validateUsers(
+      users,
+      organization_id,
+      pod_id
+    );
+    console.log(
+      `Validated ${validatedUsers.length} users, ${errors.length} errors`
+    );
 
-    await pool.query("BEGIN");
-
-    const assignedUsers = [];
-    for (const user of validatedUsers) {
-      const podUserResult = await pool.query(
-        "INSERT INTO pod_users (pod_id, user_id) VALUES ($1, $2) RETURNING *",
-        [pod_id, user.user_id]
-      );
-      const pod_user = podUserResult.rows[0];
-
-      const conceptsResult = await pool.query(
-        "SELECT c.concept_id FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
-        [batch.batch_id]
-      );
-      const concept_ids = conceptsResult.rows.map((row) => row.concept_id);
-      if (concept_ids.length > 0) {
-        const values = concept_ids
-          .map(
-            (concept_id) => `(${user.user_id}, ${concept_id}, 'not started')`
-          )
-          .join(", ");
-        await pool.query(
-          `INSERT INTO user_concept_progress (user_id, concept_id, status) VALUES ${values}`
-        );
-      }
-      assignedUsers.push({ pod_user, user });
+    if (errors.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        error: "Conflict",
+        message: "One or more users are already assigned to a pod",
+        errors,
+      });
     }
 
-    const podResult = await pool.query(
+    if (validatedUsers.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "No valid users to assign",
+      });
+    }
+
+    const assignedUsers = [];
+    const podUserValues = validatedUsers
+      .map((user) => `(${pod_id}, ${user.user_id})`)
+      .join(", ");
+    const podUserQuery = `
+      INSERT INTO pod_users (pod_id, user_id)
+      VALUES ${podUserValues}
+      RETURNING pod_user_id, user_id
+    `;
+    let podUserResult;
+    try {
+      podUserResult = await client.query(podUserQuery);
+      console.log(`Inserted ${podUserResult.rows.length} pod_users`);
+    } catch (error) {
+      if (error.code === "23505") {
+        console.log(
+          "Duplicate key violation in pod_users, checking constraints"
+        );
+        // Fallback: Insert one by one to identify problematic users
+        podUserResult = { rows: [] };
+        for (const user of validatedUsers) {
+          try {
+            const singleInsert = await client.query(
+              "INSERT INTO pod_users (pod_id, user_id) VALUES ($1, $2) RETURNING pod_user_id, user_id",
+              [pod_id, user.user_id]
+            );
+            podUserResult.rows.push(singleInsert.rows[0]);
+            console.log(`Inserted user_id: ${user.user_id}`);
+          } catch (singleError) {
+            console.log(
+              `Failed to insert user_id: ${user.user_id}: ${singleError.message}`
+            );
+            errors.push({
+              user: user.email || user.username,
+              error: singleError.message,
+            });
+          }
+        }
+        if (errors.length > 0) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            success: false,
+            error: "Conflict",
+            message: "One or more users are already assigned to a pod",
+            errors,
+          });
+        }
+      } else {
+        throw error; // Rethrow non-constraint errors
+      }
+    }
+
+    const conceptsResult = await client.query(
+      "SELECT c.concept_id FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+      [batch.batch_id]
+    );
+    const concept_ids = conceptsResult.rows.map((row) => row.concept_id);
+    console.log(`Found ${concept_ids.length} concepts for batch`);
+
+    if (concept_ids.length > 0) {
+      const progressValues = podUserResult.rows
+        .map((row) => validatedUsers.find((u) => u.user_id === row.user_id))
+        .flatMap((user) =>
+          concept_ids.map(
+            (concept_id) => `(${user.user_id}, ${concept_id}, 'not started')`
+          )
+        )
+        .join(", ");
+      const progressQuery = `
+        INSERT INTO user_concept_progress (user_id, concept_id, status)
+        VALUES ${progressValues}
+        ON CONFLICT (user_id, concept_id) DO NOTHING
+      `;
+      await client.query(progressQuery);
+      console.log(`Inserted progress for ${podUserResult.rows.length} users`);
+    }
+
+    assignedUsers.push(
+      ...podUserResult.rows.map((row) => ({
+        pod_user_id: row.pod_user_id,
+        user: validatedUsers.find((u) => u.user_id === row.user_id),
+      }))
+    );
+
+    const podResult = await client.query(
       "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
@@ -233,19 +337,19 @@ const addUserToPod = async (req, res) => {
       [pod_id]
     );
     const pod = podResult.rows[0];
-    const batchConcepts = await pool.query(
+    const batchConcepts = await client.query(
       "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
       [batch.batch_id]
     );
 
     const responseData = await Promise.all(
-      assignedUsers.map(async ({ pod_user, user }) => {
-        const progressResult = await pool.query(
+      assignedUsers.map(async ({ pod_user_id, user }) => {
+        const progressResult = await client.query(
           "SELECT concept_id, status, updated_at FROM user_concept_progress WHERE user_id = $1",
           [user.user_id]
         );
         return {
-          pod_user_id: pod_user.pod_user_id,
+          pod_user_id,
           user: {
             user_id: user.user_id,
             first_name: user.first_name,
@@ -278,27 +382,25 @@ const addUserToPod = async (req, res) => {
       })
     );
 
-    await pool.query("COMMIT");
-
+    await client.query("COMMIT");
     res.status(201).json({
       success: true,
       data: responseData,
       message: "Users assigned to pod successfully",
     });
   } catch (error) {
-    await pool.query("ROLLBACK");
+    if (client) await client.query("ROLLBACK");
     if (
       [
         "Organization not found",
         "Batch not found",
         "Pod not found",
-        "User not found or not an orguser",
         "Cannot assign users to an inactive batch",
         "Cannot assign users to an inactive pod",
         "Batch size limit reached",
+        "User not found or not an orguser",
         "User identifier (email, username, or first_name and last_name) is required",
       ].includes(error.message) ||
-      error.message.includes("is already assigned to a pod") ||
       error.message.includes("is not associated with the organization")
     ) {
       return res.status(400).json({
@@ -307,11 +409,12 @@ const addUserToPod = async (req, res) => {
         message: error.message,
       });
     }
-    if (error.code === "23505") {
+    if (error.message.includes("is already assigned to pod")) {
       return res.status(409).json({
         success: false,
         error: "Conflict",
         message: "One or more users are already assigned to a pod",
+        errors: [{ user: null, error: error.message }],
       });
     }
     console.error("Error assigning users to pod:", error);
@@ -320,6 +423,8 @@ const addUserToPod = async (req, res) => {
       error: "Internal server error",
       message: error.message,
     });
+  } finally {
+    if (client) client.release();
   }
 };
 
@@ -877,8 +982,8 @@ const getAllOrgusersWithAssignmentStatus = async (req, res) => {
         "LEFT JOIN pod_users pu ON u.user_id = pu.user_id " +
         "LEFT JOIN pods p ON pu.pod_id = p.pod_id " +
         "LEFT JOIN batches b ON p.batch_id = b.batch_id " +
-        "LEFT JOIN users m ON p.mentor_id = m.user_id " +
         "LEFT JOIN organizations o ON p.organization_id = o.organization_id " +
+        "LEFT JOIN users m ON p.mentor_id = m.user_id " +
         "WHERE u.organization_id = $1 AND r.role = $2",
       [organization_id, "orguser"]
     );

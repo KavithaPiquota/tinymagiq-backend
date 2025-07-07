@@ -26,6 +26,66 @@ const validateConceptIds = async (concept_ids) => {
   }
 };
 
+const syncUserProgressForBatch = async (batch_id) => {
+  // Fetch all active pods for the batch
+  const podsResult = await pool.query(
+    "SELECT pod_id FROM pods WHERE batch_id = $1 AND is_active = TRUE",
+    [batch_id]
+  );
+  const podIds = podsResult.rows.map((row) => row.pod_id);
+
+  // Fetch current concepts for the batch
+  const conceptsResult = await pool.query(
+    "SELECT concept_id FROM batch_concepts WHERE batch_id = $1",
+    [batch_id]
+  );
+  const currentConceptIds = conceptsResult.rows.map((row) => row.concept_id);
+
+  for (const pod_id of podIds) {
+    // Fetch orgusers in the pod
+    const usersResult = await pool.query(
+      "SELECT u.user_id FROM pod_users pu JOIN users u ON pu.user_id = u.user_id JOIN roles r ON u.role_id = r.role_id WHERE pu.pod_id = $1 AND r.role = $2",
+      [pod_id, "orguser"]
+    );
+    const userIds = usersResult.rows.map((row) => row.user_id);
+
+    for (const user_id of userIds) {
+      // Fetch existing progress for the user
+      const progressResult = await pool.query(
+        "SELECT concept_id FROM user_concept_progress WHERE user_id = $1",
+        [user_id]
+      );
+      const existingConceptIds = progressResult.rows.map(
+        (row) => row.concept_id
+      );
+
+      // Add new concepts
+      const conceptsToAdd = currentConceptIds.filter(
+        (cid) => !existingConceptIds.includes(cid)
+      );
+      if (conceptsToAdd.length > 0) {
+        const values = conceptsToAdd
+          .map((cid) => `(${user_id}, ${cid}, 'not started')`)
+          .join(", ");
+        await pool.query(
+          `INSERT INTO user_concept_progress (user_id, concept_id, status) VALUES ${values} ON CONFLICT DO NOTHING`
+        );
+      }
+
+      // Remove deleted concepts
+      const conceptsToRemove = existingConceptIds.filter(
+        (cid) => !currentConceptIds.includes(cid)
+      );
+      if (conceptsToRemove.length > 0) {
+        await pool.query(
+          "DELETE FROM user_concept_progress WHERE user_id = $1 AND concept_id = ANY($2)",
+          [user_id, conceptsToRemove]
+        );
+      }
+    }
+  }
+};
+
 const addBatch = async (req, res) => {
   const {
     organization_name,
@@ -150,30 +210,35 @@ const updateBatch = async (req, res) => {
       : null;
     await validateConceptIds(concept_ids);
 
-    const fields = [];
-    const values = [];
-    let index = 1;
-
-    if (organization_name !== undefined) {
-      fields.push(`organization_id = $${index++}`);
-      values.push(organization_id);
-    }
-    if (batch_name) {
-      fields.push(`batch_name = $${index++}`);
-      values.push(batch_name);
-    }
-    if (batch_size !== undefined) {
-      fields.push(`batch_size = $${index++}`);
-      values.push(batch_size);
-    }
-    if (is_active !== undefined) {
-      fields.push(`is_active = $${index++}`);
-      values.push(is_active);
-    }
-
     await pool.query("BEGIN");
     let batch;
-    if (fields.length > 0) {
+    if (
+      organization_name ||
+      batch_name ||
+      batch_size !== undefined ||
+      is_active !== undefined
+    ) {
+      const fields = [];
+      const values = [];
+      let index = 1;
+
+      if (organization_name !== undefined) {
+        fields.push(`organization_id = $${index++}`);
+        values.push(organization_id);
+      }
+      if (batch_name) {
+        fields.push(`batch_name = $${index++}`);
+        values.push(batch_name);
+      }
+      if (batch_size !== undefined) {
+        fields.push(`batch_size = $${index++}`);
+        values.push(batch_size);
+      }
+      if (is_active !== undefined) {
+        fields.push(`is_active = $${index++}`);
+        values.push(is_active);
+      }
+
       values.push(batch_id);
       const query = `UPDATE batches SET ${fields.join(", ")} WHERE batch_id = $${index} RETURNING *`;
       const result = await pool.query(query, values);
@@ -214,6 +279,8 @@ const updateBatch = async (req, res) => {
           `INSERT INTO batch_concepts (batch_id, concept_id) VALUES ${values}`
         );
       }
+      // Sync user progress for all orgusers in pods associated with the batch
+      await syncUserProgressForBatch(batch_id);
     }
 
     const orgResult = await pool.query(

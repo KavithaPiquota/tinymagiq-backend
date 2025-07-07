@@ -223,7 +223,7 @@ const getProgressByOrgadmin = async (req, res) => {
         };
         for (let user of usersResult.rows) {
           const progressResult = await pool.query(
-            "SELECT ucp.status, ucp.completed_at, c.concept_name " +
+            "SELECT ucp.status, ucp.updated_at, c.concept_name " +
               "FROM user_concept_progress ucp JOIN concepts c ON ucp.concept_id = c.concept_id " +
               "WHERE ucp.user_id = $1 AND ucp.concept_id IN (SELECT concept_id FROM batch_concepts WHERE batch_id = $2)",
             [user.user_id, batch.batch_id]
@@ -297,7 +297,7 @@ const getUserProgressByOrgadmin = async (req, res) => {
       [user.user_id]
     );
     const progressResult = await pool.query(
-      "SELECT ucp.status, ucp.completed_at, c.concept_id, c.concept_name, c.description " +
+      "SELECT ucp.status, ucp.updated_at, c.concept_id, c.concept_name, c.description " +
         "FROM user_concept_progress ucp JOIN concepts c ON ucp.concept_id = c.concept_id " +
         "WHERE ucp.user_id = $1 AND ucp.concept_id IN (SELECT concept_id FROM batch_concepts bc JOIN pods p ON bc.batch_id = p.batch_id WHERE p.pod_id IN (SELECT pod_id FROM pod_users WHERE user_id = $1))",
       [user.user_id]

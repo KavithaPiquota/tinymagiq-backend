@@ -628,31 +628,42 @@ const getPodById = async (req, res) => {
       "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
       [pod.batch_id]
     );
-    pod.batch = {
-      batch_id: pod.batch_id,
-      batch_name: pod.batch_name,
-      batch_size: pod.batch_size,
-      is_active: pod.batch_is_active,
-      organization_name: pod.organization_name,
-      concepts: conceptsResult.rows,
-    };
-    pod.mentor = {
-      user_id: pod.user_id,
-      first_name: pod.first_name,
-      last_name: pod.last_name,
-      email: pod.email,
-    };
-    delete pod.batch_name;
-    delete pod.batch_size;
-    delete pod.batch_is_active;
-    delete pod.organization_name;
-    delete pod.user_id;
-    delete pod.first_name;
-    delete pod.last_name;
-    delete pod.email;
+    const orgusersResult = await pool.query(
+      "SELECT u.user_id, u.first_name, u.last_name, u.email, u.username " +
+        "FROM pod_users pu " +
+        "JOIN users u ON pu.user_id = u.user_id " +
+        "JOIN roles r ON u.role_id = r.role_id " +
+        "WHERE pu.pod_id = $1 AND r.role = $2",
+      [pod.pod_id, "orguser"]
+    );
     res.json({
       success: true,
-      data: pod,
+      data: {
+        pod_id: pod.pod_id,
+        organization_id: pod.organization_id,
+        organization_name: pod.organization_name,
+        batch_id: pod.batch_id,
+        batch_name: pod.batch_name,
+        mentor_id: pod.mentor_id,
+        pod_name: pod.pod_name,
+        is_active: pod.is_active,
+        created_at: pod.created_at,
+        batch: {
+          batch_id: pod.batch_id,
+          batch_name: pod.batch_name,
+          batch_size: pod.batch_size,
+          is_active: pod.batch_is_active,
+          organization_name: pod.organization_name,
+          concepts: conceptsResult.rows,
+        },
+        mentor: {
+          user_id: pod.user_id,
+          first_name: pod.first_name,
+          last_name: pod.last_name,
+          email: pod.email,
+        },
+        orgusers: orgusersResult.rows,
+      },
       message: "Pod fetched successfully",
     });
   } catch (error) {
