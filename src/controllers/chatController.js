@@ -1,14 +1,13 @@
-// src/controllers/chatController.js - Simplified with 3 Status System
 const { pool } = require('../config/database');
 
 class ChatController {
 
-    // Create chat with simplified status system
+    // Create chat with concept_name field
     async createChat(req, res, next) {
         let client;
 
         try {
-            const { user_id, conversation, status, current_stage } = req.body;
+            const { user_id, conversation, status, current_stage, concept_name } = req.body;
 
             if (!user_id || !conversation) {
                 return res.status(400).json({
@@ -16,6 +15,12 @@ class ChatController {
                     error: 'Missing required fields',
                     details: 'user_id and conversation are required'
                 });
+            }
+
+            // concept_name validation (optional but if provided should not be empty)
+            let finalConceptName = concept_name ? concept_name.trim() : null;
+            if (finalConceptName === '') {
+                finalConceptName = null;
             }
 
             // Only 3 statuses allowed
@@ -49,39 +54,29 @@ class ChatController {
                 });
             }
 
-            console.log(`💾 Creating chat for ${user_id} with status: ${finalStatus}, stage: ${finalStage}`);
+            console.log(`💾 Creating chat for ${user_id} with concept: "${finalConceptName}" status: ${finalStatus}, stage: ${finalStage}`);
 
             client = await pool.connect();
 
             try {
                 await client.query('BEGIN');
 
-                // When saving as completed, archive other active conversations
-                if (finalStatus === 'completed') {
-                    const archiveResult = await client.query(
-                        `UPDATE chat 
-                         SET status = 'archived', updated_at = CURRENT_TIMESTAMP 
-                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress')
-                         RETURNING id, status`,
-                        [user_id]
-                    );
+                // Remove archiving logic - let users have multiple active conversations
+                // No need to archive other conversations when completing one
 
-                    console.log(`📚 Archived ${archiveResult.rows.length} active conversations for ${user_id}`);
-                }
-
-                // Insert new chat
+                // Insert new chat with concept_name
                 const insertResult = await client.query(
-                    `INSERT INTO chat (user_id, conversation, status, current_stage) 
-                     VALUES ($1, $2, $3, $4) 
+                    `INSERT INTO chat (user_id, conversation, status, current_stage, concept_name) 
+                     VALUES ($1, $2, $3, $4, $5) 
                      RETURNING id, created_at, updated_at`,
-                    [user_id, JSON.stringify(conversation), finalStatus, finalStage]
+                    [user_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName]
                 );
 
                 await client.query('COMMIT');
 
                 const newChat = insertResult.rows[0];
 
-                console.log(`✅ Chat created: ${user_id} - ${finalStatus} - Stage ${finalStage} (ID: ${newChat.id})`);
+                console.log(`✅ Chat created: ${user_id} - "${finalConceptName}" - ${finalStatus} - Stage ${finalStage} (ID: ${newChat.id})`);
 
                 res.status(201).json({
                     success: true,
@@ -92,10 +87,11 @@ class ChatController {
                         conversation,
                         status: finalStatus,
                         current_stage: finalStage,
+                        concept_name: finalConceptName,
                         stage_display_name: `Stage ${finalStage}`,
                         created_at: newChat.created_at,
                         updated_at: newChat.updated_at,
-                        shouldStartFresh: finalStatus === 'completed'
+                        shouldStartFresh: false // Remove forced fresh start logic
                     }
                 });
 
@@ -127,10 +123,11 @@ class ChatController {
         }
     }
 
-    // Get session status 
+    // Get session status with concept_name
     async getSessionStatus(req, res, next) {
         try {
-            const { user_id } = req.params; // Changed from username to user_id
+            const { user_id } = req.params;
+            const { concept_name } = req.query;
 
             if (!user_id) {
                 return res.status(400).json({
@@ -139,17 +136,30 @@ class ChatController {
                 });
             }
 
-            console.log(`🔍 Checking session status for user_id: ${user_id}`);
+            const conceptInfo = concept_name ? ` for concept: "${concept_name}"` : '';
+            console.log(`🔍 Checking session status for user_id: ${user_id}${conceptInfo}`);
 
-            // Look for not_started or inprogress conversations - get LATEST (most recent)
-            const activeResult = await pool.query(
-                `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
-             FROM chat 
-             WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
-             ORDER BY updated_at DESC 
-             LIMIT 1`,
-                [user_id] // Using user_id instead of username
-            );
+            let query, params;
+
+            if (concept_name) {
+                // Look for not_started or inprogress conversations with specific concept_name
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                        FROM chat 
+                        WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND concept_name ILIKE $2
+                        ORDER BY updated_at DESC 
+                        LIMIT 1`;
+                params = [user_id, `%${concept_name}%`];
+            } else {
+                // Look for not_started or inprogress conversations - get LATEST (most recent)
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                        FROM chat 
+                        WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
+                        ORDER BY updated_at DESC 
+                        LIMIT 1`;
+                params = [user_id];
+            }
+
+            const activeResult = await pool.query(query, params);
 
             if (activeResult.rows.length > 0) {
                 const chat = activeResult.rows[0];
@@ -162,7 +172,9 @@ class ChatController {
                 }
 
                 const stageDisplayName = `Stage ${chat.current_stage}`;
-                console.log(`🔄 Found ${chat.status} conversation (ID: ${chat.id}) at ${stageDisplayName}`);
+                const conceptDisplay = chat.concept_name ? ` for "${chat.concept_name}"` : '';
+                const searchedConcept = concept_name ? ` (searched for: "${concept_name}")` : '';
+                console.log(`🔄 Found ${chat.status} conversation (ID: ${chat.id}) at ${stageDisplayName}${conceptDisplay}${searchedConcept}`);
 
                 return res.json({
                     success: true,
@@ -174,16 +186,36 @@ class ChatController {
                             ...chat,
                             stage_display_name: stageDisplayName
                         },
-                        message: `Found ${chat.status} conversation at ${stageDisplayName}`
+                        searched_concept: concept_name || null,
+                        message: `Found ${chat.status} conversation at ${stageDisplayName}${conceptDisplay}${searchedConcept}`
                     }
                 });
             }
 
-            // Check completed sessions count
+            // If concept_name was provided but no active session found with that concept
+            if (concept_name) {
+                console.log(`🔍 No active sessions found for user_id ${user_id} with concept: "${concept_name}"`);
+                
+                return res.json({
+                    success: true,
+                    data: {
+                        sessionType: 'fresh',
+                        hasActiveSession: false,
+                        shouldStartFresh: true,
+                        chat: null,
+                        recommended_stage: 0,
+                        stage_display_name: 'Stage 0',
+                        searched_concept: concept_name,
+                        message: `No active conversations found for concept: "${concept_name}". Start fresh.`
+                    }
+                });
+            }
+
+            // Check completed sessions count (general case when no concept_name provided)
             const completedResult = await pool.query(
                 `SELECT COUNT(*) as count FROM chat 
              WHERE user_id = $1 AND status = 'completed'`,
-                [user_id] // Using user_id instead of username
+                [user_id]
             );
 
             const completedCount = parseInt(completedResult.rows[0].count, 10);
@@ -198,6 +230,7 @@ class ChatController {
                     chat: null,
                     recommended_stage: 0,
                     stage_display_name: 'Stage 0',
+                    searched_concept: null,
                     message: `No active conversations. Start fresh. (${completedCount} completed sessions)`
                 }
             });
@@ -213,19 +246,25 @@ class ChatController {
         }
     }
 
-    // Update conversation
+    // Update conversation with concept_name
     async updateConversation(req, res, next) {
         let client;
 
         try {
             const { chat_id } = req.params;
-            const { conversation, status, current_stage } = req.body;
+            const { conversation, status, current_stage, concept_name } = req.body;
 
             if (!chat_id || !conversation) {
                 return res.status(400).json({
                     success: false,
                     error: 'Missing required fields: chat_id and conversation'
                 });
+            }
+
+            // concept_name validation (optional but if provided should not be empty)
+            let finalConceptName = concept_name !== undefined ? (concept_name ? concept_name.trim() : null) : undefined;
+            if (finalConceptName === '') {
+                finalConceptName = null;
             }
 
             const validStatuses = ['not_started', 'inprogress', 'completed'];
@@ -242,7 +281,7 @@ class ChatController {
                 });
             }
 
-            console.log(`📝 Updating conversation ID: ${chat_id} with status: ${finalStatus}, stage: ${finalStage}`);
+            console.log(`📝 Updating conversation ID: ${chat_id} with concept: "${finalConceptName}" status: ${finalStatus}, stage: ${finalStage}`);
 
             client = await pool.connect();
 
@@ -251,7 +290,7 @@ class ChatController {
 
                 // Check if chat exists
                 const checkResult = await pool.query(
-                    'SELECT id, user_id, status, current_stage FROM chat WHERE id = $1',
+                    'SELECT id, user_id, status, current_stage, concept_name FROM chat WHERE id = $1',
                     [parseInt(chat_id)]
                 );
 
@@ -270,6 +309,11 @@ class ChatController {
                     finalStage = existingChat.current_stage || 0;
                 }
 
+                // If concept_name not provided, keep existing concept_name
+                if (finalConceptName === undefined) {
+                    finalConceptName = existingChat.concept_name;
+                }
+
                 // Business logic for status-stage relationship
                 if (finalStatus === 'not_started') {
                     finalStage = 0;
@@ -277,23 +321,16 @@ class ChatController {
                     finalStage = 5;
                 }
 
-                // If updating to completed, archive other active chats
-                if (finalStatus === 'completed') {
-                    await client.query(
-                        `UPDATE chat 
-                         SET status = 'archived', updated_at = CURRENT_TIMESTAMP 
-                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND id != $2`,
-                        [existingChat.user_id, parseInt(chat_id)]
-                    );
-                }
+                // Remove archiving logic - allow multiple active conversations
+                // Users can have multiple completed, inprogress, and not_started conversations
 
-                // Update the conversation
+                // Update the conversation with concept_name
                 const updateResult = await client.query(
                     `UPDATE chat 
-                     SET conversation = $1, status = $2, current_stage = $3, updated_at = CURRENT_TIMESTAMP 
-                     WHERE id = $4 
-                     RETURNING id, user_id, conversation, status, current_stage, updated_at`,
-                    [JSON.stringify(conversation), finalStatus, finalStage, parseInt(chat_id)]
+                     SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, updated_at = CURRENT_TIMESTAMP 
+                     WHERE id = $5 
+                     RETURNING id, user_id, conversation, status, current_stage, concept_name, updated_at`,
+                    [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, parseInt(chat_id)]
                 );
 
                 await client.query('COMMIT');
@@ -308,7 +345,8 @@ class ChatController {
                 }
 
                 const stageDisplayName = `Stage ${updatedChat.current_stage}`;
-                console.log(`✅ Conversation updated: ID ${chat_id} -> ${finalStatus} at ${stageDisplayName}`);
+                const conceptInfo = updatedChat.concept_name ? ` for "${updatedChat.concept_name}"` : '';
+                console.log(`✅ Conversation updated: ID ${chat_id} -> ${finalStatus} at ${stageDisplayName}${conceptInfo}`);
 
                 res.json({
                     success: true,
@@ -316,7 +354,7 @@ class ChatController {
                     data: {
                         ...updatedChat,
                         stage_display_name: stageDisplayName,
-                        shouldStartFresh: finalStatus === 'completed'
+                        shouldStartFresh: false // Remove forced fresh start logic
                     }
                 });
 
@@ -348,7 +386,7 @@ class ChatController {
         }
     }
 
-    // Get chat counts by status
+    // Get chat counts by status (unchanged but logs now include concept info)
     async getChatCounts(req, res, next) {
         try {
             const { user_id } = req.params;
@@ -362,8 +400,8 @@ class ChatController {
 
             const counts = {};
 
-            // Get counts for each status
-            const statuses = ['not_started', 'inprogress', 'completed', 'archived'];
+            // Get counts for each status (remove archived as it's no longer used)
+            const statuses = ['not_started', 'inprogress', 'completed'];
 
             for (const status of statuses) {
                 const result = await pool.query(
@@ -413,11 +451,11 @@ class ChatController {
         }
     }
 
-    // Get chat history
+    // Get chat history with concept_name
     async getChatHistory(req, res, next) {
         try {
             const { user_id } = req.params;
-            const { status = 'all', limit = 20, offset = 0, stage } = req.query;
+            const { status = 'all', limit = 20, offset = 0, stage, concept } = req.query;
 
             if (!user_id) {
                 return res.status(400).json({
@@ -429,8 +467,17 @@ class ChatController {
             let query, params, countQuery, countParams;
 
             if (status === 'all') {
-                if (stage !== undefined) {
-                    query = `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
+                if (stage !== undefined && concept !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                            FROM chat 
+                            WHERE user_id = $1 AND current_stage = $2 AND concept_name ILIKE $3
+                            ORDER BY updated_at DESC 
+                            LIMIT $4 OFFSET $5`;
+                    params = [user_id, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
+                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND current_stage = $2 AND concept_name ILIKE $3`;
+                    countParams = [user_id, parseInt(stage), `%${concept}%`];
+                } else if (stage !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
                             FROM chat 
                             WHERE user_id = $1 AND current_stage = $2
                             ORDER BY updated_at DESC 
@@ -438,8 +485,17 @@ class ChatController {
                     params = [user_id, parseInt(stage), parseInt(limit), parseInt(offset)];
                     countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND current_stage = $2`;
                     countParams = [user_id, parseInt(stage)];
+                } else if (concept !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                            FROM chat 
+                            WHERE user_id = $1 AND concept_name ILIKE $2
+                            ORDER BY updated_at DESC 
+                            LIMIT $3 OFFSET $4`;
+                    params = [user_id, `%${concept}%`, parseInt(limit), parseInt(offset)];
+                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND concept_name ILIKE $2`;
+                    countParams = [user_id, `%${concept}%`];
                 } else {
-                    query = `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
                             FROM chat 
                             WHERE user_id = $1 
                             ORDER BY updated_at DESC 
@@ -451,8 +507,17 @@ class ChatController {
             } else if (status === 'active') {
                 // Active = not_started + inprogress
                 const activeStatuses = ['not_started', 'inprogress'];
-                if (stage !== undefined) {
-                    query = `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
+                if (stage !== undefined && concept !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                            FROM chat 
+                            WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3 AND concept_name ILIKE $4
+                            ORDER BY updated_at DESC 
+                            LIMIT $5 OFFSET $6`;
+                    params = [user_id, activeStatuses, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
+                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3 AND concept_name ILIKE $4`;
+                    countParams = [user_id, activeStatuses, parseInt(stage), `%${concept}%`];
+                } else if (stage !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
                             FROM chat 
                             WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3
                             ORDER BY updated_at DESC 
@@ -460,8 +525,17 @@ class ChatController {
                     params = [user_id, activeStatuses, parseInt(stage), parseInt(limit), parseInt(offset)];
                     countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3`;
                     countParams = [user_id, activeStatuses, parseInt(stage)];
+                } else if (concept !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                            FROM chat 
+                            WHERE user_id = $1 AND status = ANY($2) AND concept_name ILIKE $3
+                            ORDER BY updated_at DESC 
+                            LIMIT $4 OFFSET $5`;
+                    params = [user_id, activeStatuses, `%${concept}%`, parseInt(limit), parseInt(offset)];
+                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2) AND concept_name ILIKE $3`;
+                    countParams = [user_id, activeStatuses, `%${concept}%`];
                 } else {
-                    query = `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
                             FROM chat 
                             WHERE user_id = $1 AND status = ANY($2)
                             ORDER BY updated_at DESC 
@@ -471,7 +545,7 @@ class ChatController {
                     countParams = [user_id, activeStatuses];
                 }
             } else {
-                const validStatuses = ['not_started', 'inprogress', 'completed', 'archived'];
+                const validStatuses = ['not_started', 'inprogress', 'completed'];
                 if (!validStatuses.includes(status)) {
                     return res.status(400).json({
                         success: false,
@@ -480,8 +554,17 @@ class ChatController {
                     });
                 }
 
-                if (stage !== undefined) {
-                    query = `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
+                if (stage !== undefined && concept !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                            FROM chat 
+                            WHERE user_id = $1 AND status = $2 AND current_stage = $3 AND concept_name ILIKE $4
+                            ORDER BY updated_at DESC 
+                            LIMIT $5 OFFSET $6`;
+                    params = [user_id, status, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
+                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2 AND current_stage = $3 AND concept_name ILIKE $4`;
+                    countParams = [user_id, status, parseInt(stage), `%${concept}%`];
+                } else if (stage !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
                             FROM chat 
                             WHERE user_id = $1 AND status = $2 AND current_stage = $3
                             ORDER BY updated_at DESC 
@@ -489,8 +572,17 @@ class ChatController {
                     params = [user_id, status, parseInt(stage), parseInt(limit), parseInt(offset)];
                     countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2 AND current_stage = $3`;
                     countParams = [user_id, status, parseInt(stage)];
+                } else if (concept !== undefined) {
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                            FROM chat 
+                            WHERE user_id = $1 AND status = $2 AND concept_name ILIKE $3
+                            ORDER BY updated_at DESC 
+                            LIMIT $4 OFFSET $5`;
+                    params = [user_id, status, `%${concept}%`, parseInt(limit), parseInt(offset)];
+                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2 AND concept_name ILIKE $3`;
+                    countParams = [user_id, status, `%${concept}%`];
                 } else {
-                    query = `SELECT id, user_id, conversation, status, current_stage, created_at, updated_at 
+                    query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
                             FROM chat 
                             WHERE user_id = $1 AND status = $2 
                             ORDER BY updated_at DESC 
@@ -527,6 +619,7 @@ class ChatController {
                     chats,
                     filter: status,
                     stage_filter: stage,
+                    concept_filter: concept,
                     pagination: {
                         total,
                         limit: parseInt(limit),
@@ -547,7 +640,7 @@ class ChatController {
         }
     }
 
-    // Get chat by ID
+    // Get chat by ID with concept_name
     async getChatById(req, res, next) {
         try {
             const { chat_id } = req.params;
@@ -560,7 +653,7 @@ class ChatController {
             }
 
             const result = await pool.query(
-                'SELECT id, user_id, conversation, status, current_stage, created_at, updated_at FROM chat WHERE id = $1',
+                'SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at FROM chat WHERE id = $1',
                 [parseInt(chat_id)]
             );
 
@@ -601,7 +694,7 @@ class ChatController {
         }
     }
 
-    // Delete chat
+    // Delete chat (unchanged)
     async deleteChat(req, res, next) {
         let client;
 
@@ -621,7 +714,7 @@ class ChatController {
                 await client.query('BEGIN');
 
                 const result = await client.query(
-                    'DELETE FROM chat WHERE id = $1 RETURNING id, user_id, status, current_stage',
+                    'DELETE FROM chat WHERE id = $1 RETURNING id, user_id, status, current_stage, concept_name',
                     [parseInt(chat_id)]
                 );
 
