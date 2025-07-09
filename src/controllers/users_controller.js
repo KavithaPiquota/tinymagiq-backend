@@ -54,13 +54,31 @@ const addUser = async (req, res) => {
     is_active = true,
   } = req.body;
 
-  if (!role_name || !email || !first_name || !last_name || !password) {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message:
-        "Role name, email, first name, last name, and password are required",
-    });
+  // Validation based on role
+  if (role_name === "orguser") {
+    if (!first_name || !last_name) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "First name and last name are required for orguser",
+      });
+    }
+  } else {
+    if (!email || !first_name || !last_name || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message:
+          "Email, first name, last name, and password are required for non-orguser roles",
+      });
+    }
+    if (password === "Tiny@Pass123") {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "The password 'Tiny@Pass123' is not allowed for this role",
+      });
+    }
   }
 
   try {
@@ -76,20 +94,46 @@ const addUser = async (req, res) => {
       username = await generateUsername();
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    if (email) {
+      const emailExists = await pool.query(
+        "SELECT 1 FROM users WHERE email = $1",
+        [email]
+      );
+      if (emailExists.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: "Conflict",
+          message: "Email already exists",
+        });
+      }
+    }
+
     const role_id = await getRoleIdByName(role_name);
     const organization_id = await getOrganizationIdByName(organization_name);
+
+    // Set default password for orguser if not provided
+    let hashedPassword;
+    let is_default_password = false;
+    if (role_name === "orguser" && !password) {
+      password = "Tiny@Pass123";
+      hashedPassword = await bcrypt.hash(password, 10);
+      is_default_password = true;
+    } else {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
     const result = await pool.query(
-      "INSERT INTO users (role_id, organization_id, email, username, first_name, last_name, password, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+      "INSERT INTO users (role_id, organization_id, email, username, first_name, last_name, password, is_active, is_default_password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
       [
         role_id,
         organization_id,
-        email,
+        email || null,
         username,
         first_name,
         last_name,
         hashedPassword,
         is_active,
+        is_default_password,
       ]
     );
     res.status(201).json({
@@ -144,11 +188,18 @@ const addSuperadmin = async (req, res) => {
     password,
     is_active = true,
   } = req.body;
-  if (!password) {
+  if (!email || !password) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: "Password is required",
+      message: "Email and password are required for superadmin",
+    });
+  }
+  if (password === "Tiny@Pass123") {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "The password 'Tiny@Pass123' is not allowed for superadmin",
     });
   }
   try {
@@ -185,11 +236,18 @@ const addMentor = async (req, res) => {
     password,
     is_active = true,
   } = req.body;
-  if (!password) {
+  if (!email || !password) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: "Password is required",
+      message: "Email and password are required for mentor",
+    });
+  }
+  if (password === "Tiny@Pass123") {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "The password 'Tiny@Pass123' is not allowed for mentor",
     });
   }
   try {
@@ -227,11 +285,19 @@ const addOrgadmin = async (req, res) => {
     password,
     is_active = true,
   } = req.body;
-  if (!organization_name || !password) {
+  if (!organization_name || !email || !password) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: "Organization name and password are required for orgadmin",
+      message:
+        "Organization name, email, and password are required for orgadmin",
+    });
+  }
+  if (password === "Tiny@Pass123") {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "The password 'Tiny@Pass123' is not allowed for orgadmin",
     });
   }
   try {
@@ -268,11 +334,20 @@ const addOrguser = async (req, res) => {
     password,
     is_active = true,
   } = req.body;
-  if (!organization_name || !password) {
+  if (!organization_name || !first_name || !last_name) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: "Organization name and password are required for orguser",
+      message:
+        "Organization name, first name, and last name are required for orguser",
+    });
+  }
+  if (password && password === "Tiny@Pass123") {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message:
+        "The password 'Tiny@Pass123' is not allowed as a custom password for orguser",
     });
   }
   try {
@@ -315,7 +390,7 @@ const updateUser = async (req, res) => {
   if (
     !role_name &&
     !organization_name &&
-    !email &&
+    email === undefined &&
     !username &&
     !first_name &&
     !last_name &&
@@ -326,6 +401,13 @@ const updateUser = async (req, res) => {
       success: false,
       error: "Bad request",
       message: "At least one field to update is required",
+    });
+  }
+  if (password && password === "Tiny@Pass123") {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "The password 'Tiny@Pass123' is not allowed",
     });
   }
 
@@ -347,8 +429,18 @@ const updateUser = async (req, res) => {
       }
     }
 
-    if (!username) {
-      username = await generateUsername();
+    if (email) {
+      const emailExists = await pool.query(
+        "SELECT email FROM users WHERE user_id != $1 AND email = $2",
+        [user_id, email]
+      );
+      if (emailExists.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: "Conflict",
+          message: "Email already exists",
+        });
+      }
     }
 
     const role_id = role_name ? await getRoleIdByName(role_name) : null;
@@ -365,9 +457,9 @@ const updateUser = async (req, res) => {
       fields.push(`organization_id = $${index++}`);
       values.push(organization_id);
     }
-    if (email) {
+    if (email !== undefined) {
       fields.push(`email = $${index++}`);
-      values.push(email);
+      values.push(email || null);
     }
     if (username) {
       fields.push(`username = $${index++}`);
@@ -385,6 +477,8 @@ const updateUser = async (req, res) => {
       const hashedPassword = await bcrypt.hash(password, 10);
       fields.push(`password = $${index++}`);
       values.push(hashedPassword);
+      fields.push(`is_default_password = $${index++}`);
+      values.push(false);
     }
     if (is_active !== undefined) {
       fields.push(`is_active = $${index++}`);
@@ -459,7 +553,7 @@ const loginUser = async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.first_name, u.last_name, u.password, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.first_name, u.last_name, u.password, u.is_active, u.is_default_password " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -523,6 +617,8 @@ const loginUser = async (req, res) => {
         first_name: user.first_name,
         last_name: user.last_name,
         is_active: user.is_active,
+        is_default_password:
+          user.role === "orguser" ? user.is_default_password : false,
         token,
       },
       message: "Login successful",
