@@ -14,4 +14,7 @@ router.get("/inactive", organizationsController.getInactiveOrganizations);
 // Create a new organization
 router.post("/", organizationsController.createOrganization);
 
+//Update organization
+router.put("/:organization_id", organizationsController.updateOrganization);
+
 module.exports = router;
