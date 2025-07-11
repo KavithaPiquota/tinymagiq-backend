@@ -3,7 +3,7 @@ const { pool } = require("../config/database");
 const getAllOrganizations = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT organization_id, organization_name, is_active FROM organizations ORDER BY organization_id"
+      "SELECT organization_id, organization_name, is_active, updated_at FROM organizations ORDER BY organization_id"
     );
     res.json({
       success: true,
@@ -23,7 +23,7 @@ const getAllOrganizations = async (req, res) => {
 const getActiveOrganizations = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT organization_id, organization_name, is_active FROM organizations WHERE is_active = TRUE ORDER BY organization_id"
+      "SELECT organization_id, organization_name, is_active, updated_at FROM organizations WHERE is_active = TRUE ORDER BY organization_id"
     );
     res.json({
       success: true,
@@ -43,7 +43,7 @@ const getActiveOrganizations = async (req, res) => {
 const getInactiveOrganizations = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT organization_id, organization_name, is_active FROM organizations WHERE is_active = FALSE ORDER BY organization_id"
+      "SELECT organization_id, organization_name, is_active, updated_at FROM organizations WHERE is_active = FALSE ORDER BY organization_id"
     );
     res.json({
       success: true,
@@ -73,7 +73,7 @@ const createOrganization = async (req, res) => {
 
   try {
     const result = await pool.query(
-      "INSERT INTO organizations (organization_name, is_active) VALUES ($1, $2) RETURNING organization_id, organization_name, is_active",
+      "INSERT INTO organizations (organization_name, is_active) VALUES ($1, $2) RETURNING organization_id, organization_name, is_active, updated_at",
       [organization_name, is_active]
     );
     res.status(201).json({
@@ -83,7 +83,6 @@ const createOrganization = async (req, res) => {
     });
   } catch (error) {
     if (error.code === "23505") {
-      // Unique violation
       return res.status(409).json({
         success: false,
         error: "Conflict",
@@ -99,9 +98,84 @@ const createOrganization = async (req, res) => {
   }
 };
 
+const updateOrganization = async (req, res) => {
+  const { organization_id } = req.params;
+  const { organization_name, is_active } = req.body;
+
+  if (organization_name === undefined && is_active === undefined) {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "At least one field to update is required",
+    });
+  }
+
+  try {
+    if (organization_name) {
+      const nameExists = await pool.query(
+        "SELECT 1 FROM organizations WHERE organization_name = $1 AND organization_id != $2",
+        [organization_name, organization_id]
+      );
+      if (nameExists.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: "Conflict",
+          message: "Organization name already exists",
+        });
+      }
+    }
+
+    const fields = [];
+    const values = [];
+    let index = 1;
+
+    if (organization_name !== undefined) {
+      fields.push(`organization_name = $${index++}`);
+      values.push(organization_name);
+    }
+    if (is_active !== undefined) {
+      fields.push(`is_active = $${index++}`);
+      values.push(is_active);
+    }
+
+    values.push(organization_id);
+    const query = `UPDATE organizations SET ${fields.join(", ")} WHERE organization_id = $${index} RETURNING organization_id, organization_name, is_active, updated_at`;
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not found",
+        message: "Organization not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: "Organization updated successfully",
+    });
+  } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        error: "Conflict",
+        message: "Organization name already exists",
+      });
+    }
+    console.error("Error updating organization:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllOrganizations,
   getActiveOrganizations,
   getInactiveOrganizations,
   createOrganization,
+  updateOrganization,
 };
