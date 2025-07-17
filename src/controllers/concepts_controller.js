@@ -15,6 +15,7 @@ const addConcept = async (req, res) => {
     concept_understanding_rubric,
     understanding_skills_rubric,
     learning_assessment_dimensions,
+    download_link,
     is_active = true,
   } = req.body;
 
@@ -70,9 +71,10 @@ const addConcept = async (req, res) => {
                 concept_understanding_rubric,
                 understanding_skills_rubric,
                 learning_assessment_dimensions,
+                download_link,
                 is_active,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_TIMESTAMP) RETURNING *`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP) RETURNING *`,
       [
         trimmedConceptName,
         concept_content,
@@ -87,6 +89,7 @@ const addConcept = async (req, res) => {
         concept_understanding_rubric,
         understanding_skills_rubric,
         learning_assessment_dimensions,
+        download_link,
         is_active,
       ]
     );
@@ -129,6 +132,7 @@ const updateConcept = async (req, res) => {
     concept_understanding_rubric,
     understanding_skills_rubric,
     learning_assessment_dimensions,
+    download_link,
     is_active,
   } = req.body;
 
@@ -146,6 +150,7 @@ const updateConcept = async (req, res) => {
     !concept_understanding_rubric &&
     !understanding_skills_rubric &&
     !learning_assessment_dimensions &&
+    !download_link &&
     is_active === undefined
   ) {
     return res.status(400).json({
@@ -235,6 +240,10 @@ const updateConcept = async (req, res) => {
       fields.push(`learning_assessment_dimensions = $${index++}`);
       values.push(learning_assessment_dimensions);
     }
+    if (download_link !== undefined) {
+      fields.push(`download_link = $${index++}`);
+      values.push(download_link);
+    }
     if (is_active !== undefined) {
       fields.push(`is_active = $${index++}`);
       values.push(is_active);
@@ -277,7 +286,7 @@ const updateConcept = async (req, res) => {
 const getAllConcepts = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, is_active, updated_at FROM concepts ORDER BY concept_id"
+      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, download_link, is_active, updated_at FROM concepts ORDER BY concept_id"
     );
     res.json({
       success: true,
@@ -297,7 +306,7 @@ const getAllConcepts = async (req, res) => {
 const getActiveConcepts = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, is_active, updated_at FROM concepts WHERE is_active = TRUE ORDER BY concept_id"
+      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, download_link, is_active, updated_at FROM concepts WHERE is_active = TRUE ORDER BY concept_id"
     );
     res.json({
       success: true,
@@ -318,7 +327,7 @@ const getConceptById = async (req, res) => {
   const { concept_id } = req.params;
   try {
     const result = await pool.query(
-      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, is_active, updated_at FROM concepts WHERE concept_id = $1",
+      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, download_link, is_active, updated_at FROM concepts WHERE concept_id = $1",
       [concept_id]
     );
     if (result.rows.length === 0) {
@@ -347,7 +356,7 @@ const getConceptByName = async (req, res) => {
   const { concept_name } = req.params;
   try {
     const result = await pool.query(
-      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, is_active, updated_at FROM concepts WHERE concept_name = $1",
+      "SELECT concept_id, concept_name, concept_content, concept_enduring_understandings, concept_essential_questions, concept_knowledge_skills, stage_1_content, stage_2_content, stage_3_content, stage_4_content, stage_5_content, concept_understanding_rubric, understanding_skills_rubric, learning_assessment_dimensions, download_link, is_active, updated_at FROM concepts WHERE concept_name = $1",
       [concept_name]
     );
     if (result.rows.length === 0) {

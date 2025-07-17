@@ -22,13 +22,26 @@ const generateUsername = async () => {
 
 const getOrganizationIdByName = async (organization_name) => {
   if (!organization_name) return null;
+  const trimmedOrgName = organization_name.trim();
+  console.log(
+    `getOrganizationIdByName: Input organization_name: '${organization_name}', trimmed: '${trimmedOrgName}', length: ${trimmedOrgName.length}, hex: ${Buffer.from(trimmedOrgName).toString("hex")}`
+  );
   const result = await pool.query(
-    "SELECT organization_id FROM organizations WHERE organization_name = $1",
-    [organization_name]
+    "SELECT organization_id, organization_name FROM organizations WHERE organization_name = $1",
+    [trimmedOrgName]
   );
   if (result.rows.length === 0) {
+    console.log(`No organization found for name: '${trimmedOrgName}'`);
+    // Log all organization names for debugging
+    const allOrgs = await pool.query(
+      "SELECT organization_name FROM organizations"
+    );
+    console.log(
+      `Available organizations: ${JSON.stringify(allOrgs.rows.map((row) => row.organization_name))}`
+    );
     throw new Error("Organization not found");
   }
+  console.log(`Found organization: ${JSON.stringify(result.rows[0])}`);
   return result.rows[0].organization_id;
 };
 
