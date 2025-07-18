@@ -34,9 +34,9 @@ const syncUserProgressForBatch = async (batch_id) => {
   );
   const podIds = podsResult.rows.map((row) => row.pod_id);
 
-  // Fetch current concepts for the batch
+  // Fetch current concepts for the batch, ordered by sequence_order
   const conceptsResult = await pool.query(
-    "SELECT concept_id FROM batch_concepts WHERE batch_id = $1",
+    "SELECT concept_id FROM batch_concepts WHERE batch_id = $1 ORDER BY sequence_order",
     [batch_id]
   );
   const currentConceptIds = conceptsResult.rows.map((row) => row.concept_id);
@@ -124,15 +124,18 @@ const addBatch = async (req, res) => {
     const batch = batchResult.rows[0];
     if (concept_ids && concept_ids.length > 0) {
       const values = concept_ids
-        .map((concept_id) => `(${batch.batch_id}, ${concept_id})`)
+        .map(
+          (concept_id, index) => `(${batch.batch_id}, ${concept_id}, ${index})`
+        )
         .join(", ");
       await pool.query(
-        `INSERT INTO batch_concepts (batch_id, concept_id) VALUES ${values}`
+        `INSERT INTO batch_concepts (batch_id, concept_id, sequence_order) VALUES ${values}`
       );
     }
 
     const conceptsResult = await pool.query(
-      "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
 
@@ -162,7 +165,11 @@ const addBatch = async (req, res) => {
       return res.status(409).json({
         success: false,
         error: "Conflict",
-        message: "Batch name already exists",
+        message: error.message.includes(
+          "batch_concepts_batch_id_sequence_order_unique"
+        )
+          ? "Duplicate sequence order for concepts in batch"
+          : "Batch name already exists",
       });
     }
     console.error("Error creating batch:", error);
@@ -273,10 +280,10 @@ const updateBatch = async (req, res) => {
       ]);
       if (concept_ids.length > 0) {
         const values = concept_ids
-          .map((concept_id) => `(${batch_id}, ${concept_id})`)
+          .map((concept_id, index) => `(${batch_id}, ${concept_id}, ${index})`)
           .join(", ");
         await pool.query(
-          `INSERT INTO batch_concepts (batch_id, concept_id) VALUES ${values}`
+          `INSERT INTO batch_concepts (batch_id, concept_id, sequence_order) VALUES ${values}`
         );
       }
       // Sync user progress for all orgusers in pods associated with the batch
@@ -288,7 +295,8 @@ const updateBatch = async (req, res) => {
       [batch.organization_id]
     );
     const conceptsResult = await pool.query(
-      "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch_id]
     );
 
@@ -322,7 +330,11 @@ const updateBatch = async (req, res) => {
       return res.status(409).json({
         success: false,
         error: "Conflict",
-        message: "Batch name already exists",
+        message: error.message.includes(
+          "batch_concepts_batch_id_sequence_order_unique"
+        )
+          ? "Duplicate sequence order for concepts in batch"
+          : "Batch name already exists",
       });
     }
     console.error("Error updating batch:", error);
@@ -342,7 +354,8 @@ const getAllBatches = async (req, res) => {
     const batches = result.rows;
     for (let batch of batches) {
       const conceptsResult = await pool.query(
-        "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+        "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+          "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
         [batch.batch_id]
       );
       batch.concepts = conceptsResult.rows;
@@ -373,7 +386,8 @@ const getBatchesByOrganization = async (req, res) => {
     const batches = result.rows;
     for (let batch of batches) {
       const conceptsResult = await pool.query(
-        "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+        "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+          "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
         [batch.batch_id]
       );
       batch.concepts = conceptsResult.rows;
@@ -416,7 +430,8 @@ const getBatchByName = async (req, res) => {
     }
     const batch = result.rows[0];
     const conceptsResult = await pool.query(
-      "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
     batch.concepts = conceptsResult.rows;
@@ -451,7 +466,8 @@ const getBatchById = async (req, res) => {
     }
     const batch = result.rows[0];
     const conceptsResult = await pool.query(
-      "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
     batch.concepts = conceptsResult.rows;

@@ -297,7 +297,7 @@ const addUserToPod = async (req, res) => {
 
     const conceptsResult = await client.query(
       "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
     const concept_ids = conceptsResult.rows.map((row) => row.concept_id);
@@ -333,18 +333,19 @@ const addUserToPod = async (req, res) => {
     const pod = podResult.rows[0];
     const batchConcepts = await client.query(
       "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
 
     const responseData = await Promise.all(
-      assignedUsers.map(async ({ pod_user_id, user }) => {
+      podUserResult.rows.map(async (row) => {
+        const user = validatedUsers.find((u) => u.user_id === row.user_id);
         const progressResult = await client.query(
           "SELECT concept_id, status, updated_at FROM user_concept_progress WHERE user_id = $1",
           [user.user_id]
         );
         return {
-          pod_user_id,
+          pod_user_id: row.pod_user_id,
           user: {
             user_id: user.user_id,
             first_name: user.first_name,
@@ -560,7 +561,7 @@ const updatePodUser = async (req, res) => {
     }
     const batchConcepts = await pool.query(
       "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+        "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [podResult.rows[0].batch_id]
     );
     const progressResult = await pool.query(
@@ -674,7 +675,7 @@ const getOrguserDetails = async (req, res) => {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
           "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
           [pod.batch_id]
         );
         const progressResult = await pool.query(
@@ -770,7 +771,7 @@ const getOrguserDetailsByEmail = async (req, res) => {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
           "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
           [pod.batch_id]
         );
         const progressResult = await pool.query(
@@ -866,7 +867,7 @@ const getOrguserDetailsByUserId = async (req, res) => {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
           "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
           [pod.batch_id]
         );
         const progressResult = await pool.query(
@@ -1001,7 +1002,7 @@ const getAllOrgusersWithAssignmentStatus = async (req, res) => {
         if (row.pod_user_id) {
           const batchConcepts = await pool.query(
             "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-              "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
+              "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
             [row.batch_id]
           );
           const progressResult = await pool.query(
