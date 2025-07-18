@@ -692,7 +692,7 @@ class ChatController {
         }
     }
 
-    // Get chat history with concept_name and scoring data
+    // Get chat history with concept_name and scoring data 
     async getChatHistory(req, res, next) {
         try {
             const { user_id } = req.params;
@@ -707,49 +707,53 @@ class ChatController {
 
             let query, params, countQuery, countParams;
 
-            // Updated SELECT to include scoring fields
-            const selectFields = `id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at,
-                                  explanation_score, interpretation_score, application_score, perspective_score, 
-                                  empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
-                                  summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
-                                  abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score`;
+            // Updated SELECT to include scoring fields and user details
+            const selectFields = `c.id, c.user_id, c.conversation, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at,
+                                c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
+                                c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
+                                c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
+                                c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
+                                u.username, u.first_name, u.last_name, u.email`;
+
+            // Base FROM clause with JOIN using type conversion for user_id
+            const fromClause = `FROM chat c LEFT JOIN users u ON c.user_id::integer = u.user_id`;
 
             if (status === 'all') {
                 if (stage !== undefined && concept !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND current_stage = $2 AND concept_name ILIKE $3
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.current_stage = $2 AND c.concept_name ILIKE $3
+                            ORDER BY c.updated_at DESC 
                             LIMIT $4 OFFSET $5`;
                     params = [user_id, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND current_stage = $2 AND concept_name ILIKE $3`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.current_stage = $2 AND c.concept_name ILIKE $3`;
                     countParams = [user_id, parseInt(stage), `%${concept}%`];
                 } else if (stage !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND current_stage = $2
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.current_stage = $2
+                            ORDER BY c.updated_at DESC 
                             LIMIT $3 OFFSET $4`;
                     params = [user_id, parseInt(stage), parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND current_stage = $2`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.current_stage = $2`;
                     countParams = [user_id, parseInt(stage)];
                 } else if (concept !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND concept_name ILIKE $2
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.concept_name ILIKE $2
+                            ORDER BY c.updated_at DESC 
                             LIMIT $3 OFFSET $4`;
                     params = [user_id, `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND concept_name ILIKE $2`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.concept_name ILIKE $2`;
                     countParams = [user_id, `%${concept}%`];
                 } else {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 
+                            ORDER BY c.updated_at DESC 
                             LIMIT $2 OFFSET $3`;
                     params = [user_id, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1`;
                     countParams = [user_id];
                 }
             } else if (status === 'active') {
@@ -757,39 +761,39 @@ class ChatController {
                 const activeStatuses = ['not_started', 'inprogress'];
                 if (stage !== undefined && concept !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3 AND concept_name ILIKE $4
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3 AND c.concept_name ILIKE $4
+                            ORDER BY c.updated_at DESC 
                             LIMIT $5 OFFSET $6`;
                     params = [user_id, activeStatuses, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3 AND concept_name ILIKE $4`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3 AND c.concept_name ILIKE $4`;
                     countParams = [user_id, activeStatuses, parseInt(stage), `%${concept}%`];
                 } else if (stage !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3
+                            ORDER BY c.updated_at DESC 
                             LIMIT $4 OFFSET $5`;
                     params = [user_id, activeStatuses, parseInt(stage), parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2) AND current_stage = $3`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3`;
                     countParams = [user_id, activeStatuses, parseInt(stage)];
                 } else if (concept !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = ANY($2) AND concept_name ILIKE $3
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = ANY($2) AND c.concept_name ILIKE $3
+                            ORDER BY c.updated_at DESC 
                             LIMIT $4 OFFSET $5`;
                     params = [user_id, activeStatuses, `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2) AND concept_name ILIKE $3`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.concept_name ILIKE $3`;
                     countParams = [user_id, activeStatuses, `%${concept}%`];
                 } else {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = ANY($2)
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = ANY($2)
+                            ORDER BY c.updated_at DESC 
                             LIMIT $3 OFFSET $4`;
                     params = [user_id, activeStatuses, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = ANY($2)`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2)`;
                     countParams = [user_id, activeStatuses];
                 }
             } else {
@@ -804,39 +808,39 @@ class ChatController {
 
                 if (stage !== undefined && concept !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = $2 AND current_stage = $3 AND concept_name ILIKE $4
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3 AND c.concept_name ILIKE $4
+                            ORDER BY c.updated_at DESC 
                             LIMIT $5 OFFSET $6`;
                     params = [user_id, status, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2 AND current_stage = $3 AND concept_name ILIKE $4`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3 AND c.concept_name ILIKE $4`;
                     countParams = [user_id, status, parseInt(stage), `%${concept}%`];
                 } else if (stage !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = $2 AND current_stage = $3
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3
+                            ORDER BY c.updated_at DESC 
                             LIMIT $4 OFFSET $5`;
                     params = [user_id, status, parseInt(stage), parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2 AND current_stage = $3`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3`;
                     countParams = [user_id, status, parseInt(stage)];
                 } else if (concept !== undefined) {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = $2 AND concept_name ILIKE $3
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = $2 AND c.concept_name ILIKE $3
+                            ORDER BY c.updated_at DESC 
                             LIMIT $4 OFFSET $5`;
                     params = [user_id, status, `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2 AND concept_name ILIKE $3`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2 AND c.concept_name ILIKE $3`;
                     countParams = [user_id, status, `%${concept}%`];
                 } else {
                     query = `SELECT ${selectFields} 
-                            FROM chat 
-                            WHERE user_id = $1 AND status = $2 
-                            ORDER BY updated_at DESC 
+                            ${fromClause}
+                            WHERE c.user_id = $1 AND c.status = $2 
+                            ORDER BY c.updated_at DESC 
                             LIMIT $3 OFFSET $4`;
                     params = [user_id, status, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM chat WHERE user_id = $1 AND status = $2`;
+                    countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2`;
                     countParams = [user_id, status];
                 }
             }
@@ -844,7 +848,7 @@ class ChatController {
             const result = await pool.query(query, params);
             const countResult = await pool.query(countQuery, countParams);
 
-            // Add stage display names and include scoring data
+            // Add stage display names, include scoring data, and structure user details
             const chats = result.rows.map(chat => {
                 // Parse conversation JSON
                 if (typeof chat.conversation === 'string') {
@@ -855,9 +859,25 @@ class ChatController {
                     }
                 }
 
+                // Structure user details
+                const user_details = {
+                    username: chat.username || "",
+                    first_name: chat.first_name || "",
+                    last_name: chat.last_name || "",
+                    email: chat.email || ""
+                };
+
                 const chatData = {
-                    ...chat,
-                    stage_display_name: `Stage ${chat.current_stage}`
+                    id: chat.id,
+                    user_id: chat.user_id,
+                    conversation: chat.conversation,
+                    status: chat.status,
+                    current_stage: chat.current_stage,
+                    concept_name: chat.concept_name,
+                    created_at: chat.created_at,
+                    updated_at: chat.updated_at,
+                    stage_display_name: `Stage ${chat.current_stage}`,
+                    user_details
                 };
 
                 // Include scoring data if present (for completed chats)
