@@ -12,6 +12,7 @@ const podUsersRoutes = require("./pod-users/pod-users");
 const mentorRouter = require("./mentor/mentor");
 const orgadminRoutes = require("./orgadmin/orgadmin");
 const apikeyRoutes = require("./apikey/apikey");
+const reportsRoutes = require("./reports/reports");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -101,6 +102,9 @@ router.use("/apikey", apikeyRoutes);
 
 // Template management routes
 router.use("/templates", templateRoutes);
+
+//Report API routes
+router.use("/reports", reportsRoutes);
 
 // Chat routes - with error handling
 try {
