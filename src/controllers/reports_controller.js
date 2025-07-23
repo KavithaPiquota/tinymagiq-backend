@@ -19,7 +19,6 @@ const getProgressReport = async (req, res) => {
     concept_name,
     mentor_id,
     mentor_email,
-    include_scores,
   } = req.query;
 
   try {
@@ -58,10 +57,7 @@ const getProgressReport = async (req, res) => {
       m.first_name AS mentor_first_name,
       m.last_name AS mentor_last_name,
       m.email AS mentor_email,
-      m.username AS mentor_username
-    `;
-    if (include_scores === "true") {
-      selectFields += `,
+      m.username AS mentor_username,
       c.explanation_score,
       c.interpretation_score,
       c.application_score,
@@ -76,8 +72,8 @@ const getProgressReport = async (req, res) => {
       c.abstract_concrete_score,
       c.six_facets_average,
       c.understanding_skills_average,
-      c.final_weighted_score`;
-    }
+      c.final_weighted_score
+    `;
 
     let query = `
       SELECT ${selectFields}
