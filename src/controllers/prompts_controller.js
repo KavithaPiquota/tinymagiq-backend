@@ -20,8 +20,15 @@ const isValidJsonString = (str) => {
 };
 
 const addPrompt = async (req, res) => {
-  let { prompt_type, user_content, json_content, additional_content } =
-    req.body;
+  let {
+    prompt_type,
+    user_content,
+    json_content,
+    additional_content,
+    organization_id,
+    batch_id,
+    prompt_level = "global",
+  } = req.body;
 
   // Log raw request body for debugging
   console.log("Raw request body:", JSON.stringify(req.body, null, 2));
@@ -33,7 +40,13 @@ const addPrompt = async (req, res) => {
     "json_content:",
     json_content,
     "additional_content:",
-    additional_content
+    additional_content,
+    "organization_id:",
+    organization_id,
+    "batch_id:",
+    batch_id,
+    "prompt_level:",
+    prompt_level
   );
 
   try {
@@ -42,6 +55,7 @@ const addPrompt = async (req, res) => {
     user_content = sanitizeInput(user_content);
     json_content = sanitizeInput(json_content);
     additional_content = sanitizeInput(additional_content);
+    prompt_level = sanitizeInput(prompt_level);
 
     // Validate input
     if (!prompt_type || !user_content || !json_content) {
@@ -49,6 +63,25 @@ const addPrompt = async (req, res) => {
         success: false,
         error: "Bad request",
         message: "prompt_type, user_content, and json_content are required",
+      });
+    }
+
+    // Validate prompt_level
+    if (!["global", "batch"].includes(prompt_level)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "prompt_level must be 'global' or 'batch'",
+      });
+    }
+
+    // Validate organization_id and batch_id for batch-level prompts
+    if (prompt_level === "batch" && (!organization_id || !batch_id)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message:
+          "organization_id and batch_id are required for batch-level prompts",
       });
     }
 
@@ -61,26 +94,45 @@ const addPrompt = async (req, res) => {
       });
     }
 
-    // Check if a non-archived prompt with the same prompt_type exists
-    const existingPrompt = await pool.query(
-      "SELECT id FROM prompts WHERE prompt_type = $1 AND isArchived = FALSE",
-      [prompt_type]
-    );
+    // Check if a non-archived prompt with the same prompt_type, prompt_level, organization_id, and batch_id exists
+    const existingPromptQuery = `
+      SELECT prompt_id 
+      FROM prompts 
+      WHERE prompt_type = $1 
+      AND prompt_level = $2 
+      AND COALESCE(organization_id, -1) = COALESCE($3, -1)
+      AND COALESCE(batch_id, -1) = COALESCE($4, -1)
+      AND isarchived = FALSE
+    `;
+    const existingPrompt = await pool.query(existingPromptQuery, [
+      prompt_type,
+      prompt_level,
+      organization_id,
+      batch_id,
+    ]);
 
     if (existingPrompt.rows.length > 0) {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
 
     // Insert new prompt with version 1
     const result = await pool.query(
-      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isArchived)
-       VALUES ($1, $2, $3, $4, 1, FALSE)
-       RETURNING id, prompt_type, user_content, json_content, additional_content, version, isArchived, created_at, updated_at`,
-      [prompt_type, user_content, json_content, additional_content]
+      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
+       VALUES ($1, $2, $3, $4, 1, FALSE, $5, $6, $7)
+       RETURNING prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at`,
+      [
+        prompt_type,
+        user_content,
+        json_content,
+        additional_content,
+        prompt_level,
+        organization_id,
+        batch_id,
+      ]
     );
 
     const prompt = result.rows[0];
@@ -99,7 +151,7 @@ const addPrompt = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
     console.error("Error adding prompt:", error);
@@ -112,7 +164,7 @@ const addPrompt = async (req, res) => {
 };
 
 const updatePrompt = async (req, res) => {
-  const { id } = req.params;
+  const { prompt_id } = req.params;
   let { user_content, json_content, additional_content } = req.body;
 
   // Log raw request body for debugging
@@ -155,8 +207,10 @@ const updatePrompt = async (req, res) => {
 
     // Get the existing prompt
     const existingPrompt = await pool.query(
-      "SELECT id, prompt_type, version, json_content, additional_content FROM prompts WHERE id = $1 AND isArchived = FALSE",
-      [id]
+      `SELECT prompt_id, prompt_type, version, json_content, additional_content, prompt_level, organization_id, batch_id 
+       FROM prompts 
+       WHERE prompt_id = $1 AND isarchived = FALSE`,
+      [prompt_id]
     );
 
     if (existingPrompt.rows.length === 0) {
@@ -164,7 +218,7 @@ const updatePrompt = async (req, res) => {
       return res.status(404).json({
         success: false,
         error: "Not found",
-        message: `No non-archived prompt found with id ${id}`,
+        message: `No non-archived prompt found with prompt_id ${prompt_id}`,
       });
     }
 
@@ -173,12 +227,15 @@ const updatePrompt = async (req, res) => {
       version,
       json_content: existing_json_content,
       additional_content: existing_additional_content,
+      prompt_level,
+      organization_id,
+      batch_id,
     } = existingPrompt.rows[0];
 
     // Archive the existing prompt
     await pool.query(
-      "UPDATE prompts SET isArchived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-      [id]
+      "UPDATE prompts SET isarchived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE prompt_id = $1",
+      [prompt_id]
     );
 
     // Use provided json_content or fall back to existing json_content
@@ -192,15 +249,18 @@ const updatePrompt = async (req, res) => {
 
     // Insert new prompt with incremented version
     const result = await pool.query(
-      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isArchived)
-       VALUES ($1, $2, $3, $4, $5, FALSE)
-       RETURNING id, prompt_type, user_content, json_content, additional_content, version, isArchived, created_at, updated_at`,
+      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
+       VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, $8)
+       RETURNING prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at`,
       [
         prompt_type,
         user_content,
         new_json_content,
         new_additional_content,
         version + 1,
+        prompt_level,
+        organization_id,
+        batch_id,
       ]
     );
 
@@ -223,7 +283,7 @@ const updatePrompt = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
     console.error("Error updating prompt:", error);
@@ -236,19 +296,20 @@ const updatePrompt = async (req, res) => {
 };
 
 const getPrompts = async (req, res) => {
-  const { scope } = req.query; // 'archived' or 'all', default is non-archived
+  const { scope, organization_id, batch_id } = req.query; // 'archived' or 'all', optional organization_id and batch_id
 
   try {
     let query = `
-      SELECT id, prompt_type, version, isArchived, created_at, updated_at,
+      SELECT prompt_id, prompt_type, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
              (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
     `;
     const values = [];
     let condition = "";
+    let paramIndex = 1;
 
     if (scope === "archived" || scope === "all") {
       query = `
-        SELECT id, prompt_type, user_content, json_content, additional_content, version, isArchived, created_at, updated_at,
+        SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
                (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
       `;
     }
@@ -256,9 +317,21 @@ const getPrompts = async (req, res) => {
     query += " FROM prompts";
 
     if (scope === "archived") {
-      condition = "WHERE isArchived = TRUE";
+      condition = "WHERE isarchived = TRUE";
     } else if (scope !== "all") {
-      condition = "WHERE isArchived = FALSE";
+      condition = "WHERE isarchived = FALSE";
+    }
+
+    if (organization_id !== undefined) {
+      condition += condition ? " AND" : " WHERE";
+      condition += ` COALESCE(organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      values.push(organization_id);
+    }
+
+    if (batch_id !== undefined) {
+      condition += condition ? " AND" : " WHERE";
+      condition += ` COALESCE(batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      values.push(batch_id);
     }
 
     query += ` ${condition} ORDER BY updated_at DESC`;
@@ -293,8 +366,310 @@ const getPrompts = async (req, res) => {
   }
 };
 
+const addBatchPrompt = async (req, res) => {
+  const { prompt_id, organization_id, batch_id } = req.body;
+
+  // Log raw request body for debugging
+  console.log("Raw request body:", JSON.stringify(req.body, null, 2));
+  console.log(
+    "addBatchPrompt: prompt_id:",
+    prompt_id,
+    "organization_id:",
+    organization_id,
+    "batch_id:",
+    batch_id
+  );
+
+  try {
+    // Validate input
+    if (!prompt_id || !organization_id || !batch_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "prompt_id, organization_id, and batch_id are required",
+      });
+    }
+
+    // Fetch the global prompt
+    const globalPrompt = await pool.query(
+      `SELECT prompt_type, user_content, json_content, additional_content 
+       FROM prompts 
+       WHERE prompt_id = $1 AND prompt_level = 'global' AND isarchived = FALSE`,
+      [prompt_id]
+    );
+
+    if (globalPrompt.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not found",
+        message: `No non-archived global prompt found with prompt_id ${prompt_id}`,
+      });
+    }
+
+    const { prompt_type, user_content, json_content, additional_content } =
+      globalPrompt.rows[0];
+
+    // Check if a non-archived batch prompt with the same prompt_type, organization_id, and batch_id exists
+    const existingBatchPrompt = await pool.query(
+      `SELECT prompt_id 
+       FROM prompts 
+       WHERE prompt_type = $1 
+       AND prompt_level = 'batch' 
+       AND COALESCE(organization_id, -1) = COALESCE($2, -1)
+       AND COALESCE(batch_id, -1) = COALESCE($3, -1)
+       AND isarchived = FALSE`,
+      [prompt_type, organization_id, batch_id]
+    );
+
+    if (existingBatchPrompt.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: `A non-archived batch prompt with prompt_type '${prompt_type}', organization_id '${organization_id}', and batch_id '${batch_id}' already exists`,
+      });
+    }
+
+    // Insert new batch prompt with version 1
+    const result = await pool.query(
+      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
+       VALUES ($1, $2, $3, $4, 1, FALSE, 'batch', $5, $6)
+       RETURNING prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at`,
+      [
+        prompt_type,
+        user_content,
+        json_content,
+        additional_content,
+        organization_id,
+        batch_id,
+      ]
+    );
+
+    const prompt = result.rows[0];
+    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${prompt.additional_content || ""}`;
+    console.log(
+      "addBatchPrompt: prompt_content length:",
+      prompt_content.length
+    );
+    res.status(201).json({
+      success: true,
+      data: {
+        ...prompt,
+        prompt_content,
+      },
+      message: "Batch prompt created successfully",
+    });
+  } catch (error) {
+    if (error.code === "23505") {
+      // Try fetching prompt_type for unique_active_prompt
+      let conflictPrompt = await pool.query(
+        `SELECT prompt_type 
+         FROM prompts 
+         WHERE prompt_level = 'batch' 
+         AND COALESCE(organization_id, -1) = COALESCE($1, -1)
+         AND COALESCE(batch_id, -1) = COALESCE($2, -1)
+         AND isarchived = FALSE`,
+        [organization_id, batch_id]
+      );
+      let conflict_prompt_type =
+        conflictPrompt.rows.length > 0
+          ? conflictPrompt.rows[0].prompt_type
+          : null;
+
+      if (!conflict_prompt_type) {
+        // Check for unique_active_prompt_type violation
+        const globalPrompt = await pool.query(
+          `SELECT prompt_type 
+           FROM prompts 
+           WHERE prompt_id = $1 AND prompt_level = 'global' AND isarchived = FALSE`,
+          [prompt_id]
+        );
+        if (globalPrompt.rows.length > 0) {
+          const prompt_type = globalPrompt.rows[0].prompt_type;
+          conflictPrompt = await pool.query(
+            `SELECT prompt_id 
+             FROM prompts 
+             WHERE prompt_type = $1 AND isarchived = FALSE`,
+            [prompt_type]
+          );
+          conflict_prompt_type =
+            conflictPrompt.rows.length > 0 ? prompt_type : "unknown";
+        } else {
+          conflict_prompt_type = "unknown";
+        }
+      }
+
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: `A non-archived prompt with prompt_type '${conflict_prompt_type}' already exists for organization_id '${organization_id}' and batch_id '${batch_id}'`,
+      });
+    }
+    console.error("Error adding batch prompt:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
+const getGlobalPrompts = async (req, res) => {
+  try {
+    const query = `
+      SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
+             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+      FROM prompts
+      WHERE prompt_level = 'global' AND isarchived = FALSE
+      ORDER BY updated_at DESC
+    `;
+    console.log("Executing query:", query);
+    const result = await pool.query(query);
+    const prompts = result.rows;
+
+    // Log prompt_content length for each prompt
+    prompts.forEach((prompt, index) => {
+      console.log(
+        `getGlobalPrompts: prompt[${index}] prompt_content length:`,
+        prompt.prompt_content.length
+      );
+    });
+
+    res.json({
+      success: true,
+      data: prompts,
+      message:
+        prompts.length > 0
+          ? "Global prompts fetched successfully"
+          : "No global prompts found",
+    });
+  } catch (error) {
+    console.error("Error fetching global prompts:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
+const getBatchPrompts = async (req, res) => {
+  const { organization_id, batch_id } = req.query;
+
+  try {
+    let query = `
+      SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
+             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+      FROM prompts
+      WHERE prompt_level = 'batch' AND isarchived = FALSE
+    `;
+    const values = [];
+    let condition = "";
+    let paramIndex = 1;
+
+    if (organization_id !== undefined) {
+      condition += ` AND COALESCE(organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      values.push(organization_id);
+    }
+
+    if (batch_id !== undefined) {
+      condition += ` AND COALESCE(batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      values.push(batch_id);
+    }
+
+    query += ` ${condition} ORDER BY updated_at DESC`;
+
+    console.log("Executing query:", query, "with values:", values);
+    const result = await pool.query(query, values);
+    const prompts = result.rows;
+
+    // Log prompt_content length for each prompt
+    prompts.forEach((prompt, index) => {
+      console.log(
+        `getBatchPrompts: prompt[${index}] prompt_content length:`,
+        prompt.prompt_content.length
+      );
+    });
+
+    res.json({
+      success: true,
+      data: prompts,
+      message:
+        prompts.length > 0
+          ? "Batch prompts fetched successfully"
+          : "No batch prompts found",
+    });
+  } catch (error) {
+    console.error("Error fetching batch prompts:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
+const getArchivedPrompts = async (req, res) => {
+  const { organization_id, batch_id } = req.query;
+
+  try {
+    let query = `
+      SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
+             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+      FROM prompts
+      WHERE isarchived = TRUE
+    `;
+    const values = [];
+    let condition = "";
+    let paramIndex = 1;
+
+    if (organization_id !== undefined) {
+      condition += ` AND COALESCE(organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      values.push(organization_id);
+    }
+
+    if (batch_id !== undefined) {
+      condition += ` AND COALESCE(batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      values.push(batch_id);
+    }
+
+    query += ` ${condition} ORDER BY updated_at DESC`;
+
+    console.log("Executing query:", query, "with values:", values);
+    const result = await pool.query(query, values);
+    const prompts = result.rows;
+
+    // Log prompt_content length for each prompt
+    prompts.forEach((prompt, index) => {
+      console.log(
+        `getArchivedPrompts: prompt[${index}] prompt_content length:`,
+        prompt.prompt_content.length
+      );
+    });
+
+    res.json({
+      success: true,
+      data: prompts,
+      message:
+        prompts.length > 0
+          ? "Archived prompts fetched successfully"
+          : "No archived prompts found",
+    });
+  } catch (error) {
+    console.error("Error fetching archived prompts:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   addPrompt,
   updatePrompt,
   getPrompts,
+  addBatchPrompt,
+  getGlobalPrompts,
+  getBatchPrompts,
+  getArchivedPrompts,
 };
