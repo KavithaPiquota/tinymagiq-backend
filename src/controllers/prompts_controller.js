@@ -123,7 +123,25 @@ const addPrompt = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
        VALUES ($1, $2, $3, $4, 1, FALSE, $5, $6, $7)
-       RETURNING prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at`,
+       RETURNING 
+         prompt_id, 
+         prompt_type, 
+         user_content, 
+         json_content, 
+         additional_content, 
+         version, 
+         isarchived, 
+         prompt_level, 
+         organization_id, 
+         batch_id, 
+         created_at, 
+         updated_at,
+         o.organization_name AS organization_name,
+         b.batch_name AS batch_name
+       FROM prompts p
+       LEFT JOIN organizations o ON p.organization_id = o.organization_id
+       LEFT JOIN batches b ON p.batch_id = b.batch_id
+       WHERE p.prompt_id = (SELECT currval(pg_get_serial_sequence('prompts', 'prompt_id')))`,
       [
         prompt_type,
         user_content,
@@ -251,7 +269,25 @@ const updatePrompt = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
        VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, $8)
-       RETURNING prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at`,
+       RETURNING 
+         prompt_id, 
+         prompt_type, 
+         user_content, 
+         json_content, 
+         additional_content, 
+         version, 
+         isarchived, 
+         prompt_level, 
+         organization_id, 
+         batch_id, 
+         created_at, 
+         updated_at,
+         o.organization_name AS organization_name,
+         b.batch_name AS batch_name
+       FROM prompts p
+       LEFT JOIN organizations o ON p.organization_id = o.organization_id
+       LEFT JOIN batches b ON p.batch_id = b.batch_id
+       WHERE p.prompt_id = (SELECT currval(pg_get_serial_sequence('prompts', 'prompt_id')))`,
       [
         prompt_type,
         user_content,
@@ -300,8 +336,19 @@ const getPrompts = async (req, res) => {
 
   try {
     let query = `
-      SELECT prompt_id, prompt_type, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
-             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+      SELECT 
+        p.prompt_id, 
+        p.prompt_type, 
+        p.version, 
+        p.isarchived, 
+        p.prompt_level, 
+        p.organization_id, 
+        p.batch_id, 
+        p.created_at, 
+        p.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name,
+        (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
     `;
     const values = [];
     let condition = "";
@@ -309,32 +356,48 @@ const getPrompts = async (req, res) => {
 
     if (scope === "archived" || scope === "all") {
       query = `
-        SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
-               (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+        SELECT 
+          p.prompt_id, 
+          p.prompt_type, 
+          p.user_content, 
+          p.json_content, 
+          p.additional_content, 
+          p.version, 
+          p.isarchived, 
+          p.prompt_level, 
+          p.organization_id, 
+          p.batch_id, 
+          p.created_at, 
+          p.updated_at,
+          o.organization_name AS organization_name,
+          b.batch_name AS batch_name,
+          (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
       `;
     }
 
-    query += " FROM prompts";
+    query += ` FROM prompts p
+               LEFT JOIN organizations o ON p.organization_id = o.organization_id
+               LEFT JOIN batches b ON p.batch_id = b.batch_id`;
 
     if (scope === "archived") {
-      condition = "WHERE isarchived = TRUE";
+      condition = "WHERE p.isarchived = TRUE";
     } else if (scope !== "all") {
-      condition = "WHERE isarchived = FALSE";
+      condition = "WHERE p.isarchived = FALSE";
     }
 
     if (organization_id !== undefined) {
       condition += condition ? " AND" : " WHERE";
-      condition += ` COALESCE(organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      condition += ` COALESCE(p.organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
       values.push(organization_id);
     }
 
     if (batch_id !== undefined) {
       condition += condition ? " AND" : " WHERE";
-      condition += ` COALESCE(batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      condition += ` COALESCE(p.batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
       values.push(batch_id);
     }
 
-    query += ` ${condition} ORDER BY updated_at DESC`;
+    query += ` ${condition} ORDER BY p.updated_at DESC`;
 
     console.log("Executing query:", query, "with values:", values);
     const result = await pool.query(query, values);
@@ -433,7 +496,25 @@ const addBatchPrompt = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
        VALUES ($1, $2, $3, $4, 1, FALSE, 'batch', $5, $6)
-       RETURNING prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at`,
+       RETURNING 
+         prompt_id, 
+         prompt_type, 
+         user_content, 
+         json_content, 
+         additional_content, 
+         version, 
+         isarchived, 
+         prompt_level, 
+         organization_id, 
+         batch_id, 
+         created_at, 
+         updated_at,
+         o.organization_name AS organization_name,
+         b.batch_name AS batch_name
+       FROM prompts p
+       LEFT JOIN organizations o ON p.organization_id = o.organization_id
+       LEFT JOIN batches b ON p.batch_id = b.batch_id
+       WHERE p.prompt_id = (SELECT currval(pg_get_serial_sequence('prompts', 'prompt_id')))`,
       [
         prompt_type,
         user_content,
@@ -516,11 +597,27 @@ const addBatchPrompt = async (req, res) => {
 const getGlobalPrompts = async (req, res) => {
   try {
     const query = `
-      SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
-             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
-      FROM prompts
-      WHERE prompt_level = 'global' AND isarchived = FALSE
-      ORDER BY updated_at DESC
+      SELECT 
+        p.prompt_id, 
+        p.prompt_type, 
+        p.user_content, 
+        p.json_content, 
+        p.additional_content, 
+        p.version, 
+        p.isarchived, 
+        p.prompt_level, 
+        p.organization_id, 
+        p.batch_id, 
+        p.created_at, 
+        p.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name,
+        (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
+      FROM prompts p
+      LEFT JOIN organizations o ON p.organization_id = o.organization_id
+      LEFT JOIN batches b ON p.batch_id = b.batch_id
+      WHERE p.prompt_level = 'global' AND p.isarchived = FALSE
+      ORDER BY p.updated_at DESC
     `;
     console.log("Executing query:", query);
     const result = await pool.query(query);
@@ -557,26 +654,42 @@ const getBatchPrompts = async (req, res) => {
 
   try {
     let query = `
-      SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
-             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
-      FROM prompts
-      WHERE prompt_level = 'batch' AND isarchived = FALSE
+      SELECT 
+        p.prompt_id, 
+        p.prompt_type, 
+        p.user_content, 
+        p.json_content, 
+        p.additional_content, 
+        p.version, 
+        p.isarchived, 
+        p.prompt_level, 
+        p.organization_id, 
+        p.batch_id, 
+        p.created_at, 
+        p.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name,
+        (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
+      FROM prompts p
+      LEFT JOIN organizations o ON p.organization_id = o.organization_id
+      LEFT JOIN batches b ON p.batch_id = b.batch_id
+      WHERE p.prompt_level = 'batch' AND p.isarchived = FALSE
     `;
     const values = [];
     let condition = "";
     let paramIndex = 1;
 
     if (organization_id !== undefined) {
-      condition += ` AND COALESCE(organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      condition += ` AND COALESCE(p.organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
       values.push(organization_id);
     }
 
     if (batch_id !== undefined) {
-      condition += ` AND COALESCE(batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      condition += ` AND COALESCE(p.batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
       values.push(batch_id);
     }
 
-    query += ` ${condition} ORDER BY updated_at DESC`;
+    query += ` ${condition} ORDER BY p.updated_at DESC`;
 
     console.log("Executing query:", query, "with values:", values);
     const result = await pool.query(query, values);
@@ -613,26 +726,42 @@ const getArchivedPrompts = async (req, res) => {
 
   try {
     let query = `
-      SELECT prompt_id, prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id, created_at, updated_at,
-             (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
-      FROM prompts
-      WHERE isarchived = TRUE
+      SELECT 
+        p.prompt_id, 
+        p.prompt_type, 
+        p.user_content, 
+        p.json_content, 
+        p.additional_content, 
+        p.version, 
+        p.isarchived, 
+        p.prompt_level, 
+        p.organization_id, 
+        p.batch_id, 
+        p.created_at, 
+        p.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name,
+        (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
+      FROM prompts p
+      LEFT JOIN organizations o ON p.organization_id = o.organization_id
+      LEFT JOIN batches b ON p.batch_id = b.batch_id
+      WHERE p.isarchived = TRUE
     `;
     const values = [];
     let condition = "";
     let paramIndex = 1;
 
     if (organization_id !== undefined) {
-      condition += ` AND COALESCE(organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      condition += ` AND COALESCE(p.organization_id, -1) = COALESCE($${paramIndex++}, -1)`;
       values.push(organization_id);
     }
 
     if (batch_id !== undefined) {
-      condition += ` AND COALESCE(batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
+      condition += ` AND COALESCE(p.batch_id, -1) = COALESCE($${paramIndex++}, -1)`;
       values.push(batch_id);
     }
 
-    query += ` ${condition} ORDER BY updated_at DESC`;
+    query += ` ${condition} ORDER BY p.updated_at DESC`;
 
     console.log("Executing query:", query, "with values:", values);
     const result = await pool.query(query, values);
