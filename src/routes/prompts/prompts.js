@@ -17,5 +17,6 @@ router.get("/global", promptsController.getGlobalPrompts);
 router.get("/batch", promptsController.getBatchPrompts);
 router.get("/archived", promptsController.getArchivedPrompts);
 router.post("/batch", promptsController.addBatchPrompt);
+router.get("/fallback", promptsController.getPromptsWithFallback);
 
 module.exports = router;

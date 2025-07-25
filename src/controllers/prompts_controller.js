@@ -827,6 +827,112 @@ const getArchivedPrompts = async (req, res) => {
   }
 };
 
+const getPromptsWithFallback = async (req, res) => {
+  const { organization_id, batch_id } = req.query;
+
+  try {
+    // Validate input
+    if (!organization_id || !batch_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "organization_id and batch_id are required",
+      });
+    }
+
+    // Query for non-archived batch-level prompts
+    let query = `
+      SELECT 
+        p.prompt_id, 
+        p.prompt_type, 
+        p.user_content, 
+        p.json_content, 
+        p.additional_content, 
+        p.version, 
+        p.isarchived, 
+        p.prompt_level, 
+        p.organization_id, 
+        p.batch_id, 
+        p.created_at, 
+        p.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name,
+        (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
+      FROM prompts p
+      LEFT JOIN organizations o ON p.organization_id = o.organization_id
+      LEFT JOIN batches b ON p.batch_id = b.batch_id
+      WHERE p.prompt_level = 'batch' AND p.isarchived = FALSE
+      AND p.organization_id = $1 AND p.batch_id = $2
+      ORDER BY p.updated_at DESC
+    `;
+    let values = [organization_id, batch_id];
+
+    console.log("Executing batch prompt query:", query, "with values:", values);
+    let result = await pool.query(query, values);
+    let prompts = result.rows;
+
+    // If no batch-level prompts found, fetch global prompts
+    if (prompts.length === 0) {
+      query = `
+        SELECT 
+          p.prompt_id, 
+          p.prompt_type, 
+          p.user_content, 
+          p.json_content, 
+          p.additional_content, 
+          p.version, 
+          p.isarchived, 
+          p.prompt_level, 
+          p.organization_id, 
+          p.batch_id, 
+          p.created_at, 
+          p.updated_at,
+          o.organization_name AS organization_name,
+          b.batch_name AS batch_name,
+          (p.user_content || ' ' || p.json_content || ' ' || COALESCE(p.additional_content, '')) AS prompt_content
+        FROM prompts p
+        LEFT JOIN organizations o ON p.organization_id = o.organization_id
+        LEFT JOIN batches b ON p.batch_id = b.batch_id
+        WHERE p.prompt_level = 'global' AND p.isarchived = FALSE
+        ORDER BY p.updated_at DESC
+      `;
+      console.log("Executing global prompt query:", query);
+      result = await pool.query(query);
+      prompts = result.rows;
+    }
+
+    // Log prompt_content length for each prompt
+    prompts.forEach((prompt, index) => {
+      console.log(
+        `getPromptsWithFallback: prompt[${index}] prompt_content length:`,
+        prompt.prompt_content.length
+      );
+    });
+
+    res.json({
+      success: true,
+      data: prompts.map((prompt) => ({
+        ...prompt,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
+      })),
+      message:
+        prompts.length > 0
+          ? prompts[0].prompt_level === "batch"
+            ? "Batch prompts fetched successfully"
+            : "No batch prompts found, returning global prompts"
+          : "No prompts found",
+    });
+  } catch (error) {
+    console.error("Error fetching prompts with fallback:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   addPrompt,
   updatePrompt,
@@ -835,4 +941,5 @@ module.exports = {
   getGlobalPrompts,
   getBatchPrompts,
   getArchivedPrompts,
+  getPromptsWithFallback,
 };
