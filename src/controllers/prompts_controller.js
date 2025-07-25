@@ -119,29 +119,33 @@ const addPrompt = async (req, res) => {
       });
     }
 
-    // Insert new prompt with version 1
+    // Insert new prompt with version 1 using a CTE for joins
     const result = await pool.query(
-      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
-       VALUES ($1, $2, $3, $4, 1, FALSE, $5, $6, $7)
-       RETURNING 
-         prompt_id, 
-         prompt_type, 
-         user_content, 
-         json_content, 
-         additional_content, 
-         version, 
-         isarchived, 
-         prompt_level, 
-         organization_id, 
-         batch_id, 
-         created_at, 
-         updated_at,
-         o.organization_name AS organization_name,
-         b.batch_name AS batch_name
-       FROM prompts p
-       LEFT JOIN organizations o ON p.organization_id = o.organization_id
-       LEFT JOIN batches b ON p.batch_id = b.batch_id
-       WHERE p.prompt_id = (SELECT currval(pg_get_serial_sequence('prompts', 'prompt_id')))`,
+      `
+      WITH inserted_prompt AS (
+        INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
+        VALUES ($1, $2, $3, $4, 1, FALSE, $5, $6, $7)
+        RETURNING *
+      )
+      SELECT 
+        ip.prompt_id, 
+        ip.prompt_type, 
+        ip.user_content, 
+        ip.json_content, 
+        ip.additional_content, 
+        ip.version, 
+        ip.isarchived, 
+        ip.prompt_level, 
+        ip.organization_id, 
+        ip.batch_id, 
+        ip.created_at, 
+        ip.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name
+      FROM inserted_prompt ip
+      LEFT JOIN organizations o ON ip.organization_id = o.organization_id
+      LEFT JOIN batches b ON ip.batch_id = b.batch_id
+      `,
       [
         prompt_type,
         user_content,
@@ -161,6 +165,8 @@ const addPrompt = async (req, res) => {
       data: {
         ...prompt,
         prompt_content,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
       },
       message: "Prompt added successfully",
     });
@@ -265,29 +271,33 @@ const updatePrompt = async (req, res) => {
         ? additional_content
         : existing_additional_content;
 
-    // Insert new prompt with incremented version
+    // Insert new prompt with incremented version using a CTE
     const result = await pool.query(
-      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
-       VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, $8)
-       RETURNING 
-         prompt_id, 
-         prompt_type, 
-         user_content, 
-         json_content, 
-         additional_content, 
-         version, 
-         isarchived, 
-         prompt_level, 
-         organization_id, 
-         batch_id, 
-         created_at, 
-         updated_at,
-         o.organization_name AS organization_name,
-         b.batch_name AS batch_name
-       FROM prompts p
-       LEFT JOIN organizations o ON p.organization_id = o.organization_id
-       LEFT JOIN batches b ON p.batch_id = b.batch_id
-       WHERE p.prompt_id = (SELECT currval(pg_get_serial_sequence('prompts', 'prompt_id')))`,
+      `
+      WITH inserted_prompt AS (
+        INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
+        VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, $8)
+        RETURNING *
+      )
+      SELECT 
+        ip.prompt_id, 
+        ip.prompt_type, 
+        ip.user_content, 
+        ip.json_content, 
+        ip.additional_content, 
+        ip.version, 
+        ip.isarchived, 
+        ip.prompt_level, 
+        ip.organization_id, 
+        ip.batch_id, 
+        ip.created_at, 
+        ip.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name
+      FROM inserted_prompt ip
+      LEFT JOIN organizations o ON ip.organization_id = o.organization_id
+      LEFT JOIN batches b ON ip.batch_id = b.batch_id
+      `,
       [
         prompt_type,
         user_content,
@@ -310,6 +320,8 @@ const updatePrompt = async (req, res) => {
       data: {
         ...prompt,
         prompt_content,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
       },
       message: "Prompt updated successfully",
     });
@@ -413,7 +425,11 @@ const getPrompts = async (req, res) => {
 
     res.json({
       success: true,
-      data: prompts,
+      data: prompts.map((prompt) => ({
+        ...prompt,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
+      })),
       message:
         prompts.length > 0
           ? "Prompts fetched successfully"
@@ -492,29 +508,33 @@ const addBatchPrompt = async (req, res) => {
       });
     }
 
-    // Insert new batch prompt with version 1
+    // Insert new batch prompt with version 1 using a CTE
     const result = await pool.query(
-      `INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
-       VALUES ($1, $2, $3, $4, 1, FALSE, 'batch', $5, $6)
-       RETURNING 
-         prompt_id, 
-         prompt_type, 
-         user_content, 
-         json_content, 
-         additional_content, 
-         version, 
-         isarchived, 
-         prompt_level, 
-         organization_id, 
-         batch_id, 
-         created_at, 
-         updated_at,
-         o.organization_name AS organization_name,
-         b.batch_name AS batch_name
-       FROM prompts p
-       LEFT JOIN organizations o ON p.organization_id = o.organization_id
-       LEFT JOIN batches b ON p.batch_id = b.batch_id
-       WHERE p.prompt_id = (SELECT currval(pg_get_serial_sequence('prompts', 'prompt_id')))`,
+      `
+      WITH inserted_prompt AS (
+        INSERT INTO prompts (prompt_type, user_content, json_content, additional_content, version, isarchived, prompt_level, organization_id, batch_id)
+        VALUES ($1, $2, $3, $4, 1, FALSE, 'batch', $5, $6)
+        RETURNING *
+      )
+      SELECT 
+        ip.prompt_id, 
+        ip.prompt_type, 
+        ip.user_content, 
+        ip.json_content, 
+        ip.additional_content, 
+        ip.version, 
+        ip.isarchived, 
+        ip.prompt_level, 
+        ip.organization_id, 
+        ip.batch_id, 
+        ip.created_at, 
+        ip.updated_at,
+        o.organization_name AS organization_name,
+        b.batch_name AS batch_name
+      FROM inserted_prompt ip
+      LEFT JOIN organizations o ON ip.organization_id = o.organization_id
+      LEFT JOIN batches b ON ip.batch_id = b.batch_id
+      `,
       [
         prompt_type,
         user_content,
@@ -536,6 +556,8 @@ const addBatchPrompt = async (req, res) => {
       data: {
         ...prompt,
         prompt_content,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
       },
       message: "Batch prompt created successfully",
     });
@@ -633,7 +655,11 @@ const getGlobalPrompts = async (req, res) => {
 
     res.json({
       success: true,
-      data: prompts,
+      data: prompts.map((prompt) => ({
+        ...prompt,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
+      })),
       message:
         prompts.length > 0
           ? "Global prompts fetched successfully"
@@ -705,7 +731,11 @@ const getBatchPrompts = async (req, res) => {
 
     res.json({
       success: true,
-      data: prompts,
+      data: prompts.map((prompt) => ({
+        ...prompt,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
+      })),
       message:
         prompts.length > 0
           ? "Batch prompts fetched successfully"
@@ -777,7 +807,11 @@ const getArchivedPrompts = async (req, res) => {
 
     res.json({
       success: true,
-      data: prompts,
+      data: prompts.map((prompt) => ({
+        ...prompt,
+        organization_name: prompt.organization_name || "",
+        batch_name: prompt.batch_name || "",
+      })),
       message:
         prompts.length > 0
           ? "Archived prompts fetched successfully"
