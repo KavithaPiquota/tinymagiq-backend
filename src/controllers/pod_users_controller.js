@@ -662,7 +662,7 @@ const getOrguserDetails = async (req, res) => {
     if (podUserResult.rows.length > 0) {
       const podUser = podUserResult.rows[0];
       const podResult = await pool.query(
-        "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+        "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_id, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
           "FROM pods p " +
           "JOIN batches b ON p.batch_id = b.batch_id " +
           "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -702,6 +702,7 @@ const getOrguserDetails = async (req, res) => {
           batch_name: pod.batch_name,
           batch_size: pod.batch_size,
           is_active: pod.batch_is_active,
+          organization_id: pod.organization_id,
           organization_name: pod.organization_name,
           concepts: batchConcepts.rows,
         };
