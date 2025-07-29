@@ -32,7 +32,6 @@ const getOrganizationIdByName = async (organization_name) => {
   );
   if (result.rows.length === 0) {
     console.log(`No organization found for name: '${trimmedOrgName}'`);
-    // Log all organization names for debugging
     const allOrgs = await pool.query(
       "SELECT organization_name FROM organizations"
     );
@@ -67,7 +66,6 @@ const addUser = async (req, res) => {
     is_active = true,
   } = req.body;
 
-  // Validation based on role
   if (role_name === "orguser") {
     if (!first_name || !last_name) {
       return res.status(400).json({
@@ -124,7 +122,6 @@ const addUser = async (req, res) => {
     const role_id = await getRoleIdByName(role_name);
     const organization_id = await getOrganizationIdByName(organization_name);
 
-    // Set default password for orguser if not provided
     let hashedPassword;
     let is_default_password = false;
     if (role_name === "orguser" && !password) {
@@ -646,6 +643,47 @@ const loginUser = async (req, res) => {
   }
 };
 
+const verifyUser = async (req, res) => {
+  try {
+    const user = req.user; // From authMiddleware
+    const result = await pool.query(
+      "SELECT u.user_id, r.role, u.email, u.username, u.is_active " +
+        "FROM users u " +
+        "JOIN roles r ON u.role_id = r.role_id " +
+        "WHERE u.user_id = $1",
+      [user.user_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not found",
+        message: "User not found",
+      });
+    }
+
+    const { user_id, role, email, username, is_active } = result.rows[0];
+    res.json({
+      success: true,
+      data: {
+        user_id,
+        role,
+        email,
+        username,
+        is_active,
+      },
+      message: "User verified successfully",
+    });
+  } catch (error) {
+    console.error("Error verifying user:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
 const getAllUsers = async (req, res) => {
   try {
     const result = await pool.query(
@@ -798,6 +836,7 @@ module.exports = {
   addOrguser,
   updateUser,
   loginUser,
+  verifyUser,
   getAllUsers,
   getUserById,
   getUserByEmailOrUsername,
