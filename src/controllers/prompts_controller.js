@@ -845,9 +845,6 @@ const getPromptsWithFallback = async (req, res) => {
       SELECT 
         p.prompt_id, 
         p.prompt_type, 
-        p.user_content, 
-        p.json_content, 
-        p.additional_content, 
         p.version, 
         p.isarchived, 
         p.prompt_level, 
@@ -877,9 +874,6 @@ const getPromptsWithFallback = async (req, res) => {
         SELECT 
           p.prompt_id, 
           p.prompt_type, 
-          p.user_content, 
-          p.json_content, 
-          p.additional_content, 
           p.version, 
           p.isarchived, 
           p.prompt_level, 
@@ -912,9 +906,18 @@ const getPromptsWithFallback = async (req, res) => {
     res.json({
       success: true,
       data: prompts.map((prompt) => ({
-        ...prompt,
+        prompt_id: prompt.prompt_id,
+        prompt_type: prompt.prompt_type,
+        version: prompt.version,
+        isarchived: prompt.isarchived,
+        prompt_level: prompt.prompt_level,
+        organization_id: prompt.organization_id,
+        batch_id: prompt.batch_id,
+        created_at: prompt.created_at,
+        updated_at: prompt.updated_at,
         organization_name: prompt.organization_name || "",
         batch_name: prompt.batch_name || "",
+        prompt_content: prompt.prompt_content,
       })),
       message:
         prompts.length > 0
