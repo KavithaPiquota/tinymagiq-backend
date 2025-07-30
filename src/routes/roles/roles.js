@@ -1,8 +1,9 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const rolesController = require('../../controllers/roles_controller');
+const rolesController = require("../../controllers/roles_controller");
+const authMiddleware = require("../../middleware/auth");
 
 // Get all roles
-router.get('/', rolesController.getAllRoles);
+router.get("/", authMiddleware, rolesController.getAllRoles);
 
 module.exports = router;
