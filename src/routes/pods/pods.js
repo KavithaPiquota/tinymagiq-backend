@@ -2,12 +2,23 @@ const express = require("express");
 const router = express.Router();
 const podsController = require("../../controllers/pods_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Add a new pod
-router.post("/", authMiddleware, podsController.addPod);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  podsController.addPod
+);
 
 // Update a pod
-router.put("/:pod_id", authMiddleware, podsController.updatePod);
+router.put(
+  "/:pod_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  podsController.updatePod
+);
 
 // Get all pods
 router.get("/", authMiddleware, podsController.getAllPods);

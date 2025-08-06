@@ -2,12 +2,23 @@ const express = require("express");
 const router = express.Router();
 const podUsersController = require("../../controllers/pod_users_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Add user to pod
-router.post("/", authMiddleware, podUsersController.addUserToPod);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  podUsersController.addUserToPod
+);
 
 // Update pod user assignment or progress
-router.put("/:pod_user_id", authMiddleware, podUsersController.updatePodUser);
+router.put(
+  "/:pod_user_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  podUsersController.updatePodUser
+);
 
 // Get complete orguser details by identifier (email, username, or full name)
 router.get(

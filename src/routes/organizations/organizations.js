@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const organizationsController = require("../../controllers/organizations_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Get all organizations
 router.get("/", authMiddleware, organizationsController.getAllOrganizations);
@@ -21,12 +22,18 @@ router.get(
 );
 
 // Create a new organization
-router.post("/", authMiddleware, organizationsController.createOrganization);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  organizationsController.createOrganization
+);
 
 //Update organization
 router.put(
   "/:organization_id",
   authMiddleware,
+  restrictTo("superadmin"),
   organizationsController.updateOrganization
 );
 

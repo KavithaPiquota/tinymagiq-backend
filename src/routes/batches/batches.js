@@ -2,12 +2,23 @@ const express = require("express");
 const router = express.Router();
 const batchesController = require("../../controllers/batches_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Add a new batch
-router.post("/", authMiddleware, batchesController.addBatch);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  batchesController.addBatch
+);
 
 // Update a batch
-router.put("/:batch_id", authMiddleware, batchesController.updateBatch);
+router.put(
+  "/:batch_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  batchesController.updateBatch
+);
 
 // Get all batches
 router.get("/", authMiddleware, batchesController.getAllBatches);

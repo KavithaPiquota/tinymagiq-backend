@@ -2,13 +2,19 @@ const express = require("express");
 const router = express.Router();
 const usersController = require("../../controllers/users_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Public route
 router.post("/login", usersController.loginUser);
 
 // Protected routes
 router.get("/verify", authMiddleware, usersController.verifyUser);
-router.post("/", authMiddleware, usersController.addUser);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.addUser
+);
 router.post("/superadmin", authMiddleware, usersController.addSuperadmin);
 router.post("/mentor", authMiddleware, usersController.addMentor);
 router.post("/orgadmin", authMiddleware, usersController.addOrgadmin);

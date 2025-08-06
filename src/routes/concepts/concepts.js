@@ -2,12 +2,23 @@ const express = require("express");
 const router = express.Router();
 const conceptsController = require("../../controllers/concepts_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Add a new concept
-router.post("/", authMiddleware, conceptsController.addConcept);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  conceptsController.addConcept
+);
 
 // Update a concept
-router.put("/:concept_id", authMiddleware, conceptsController.updateConcept);
+router.put(
+  "/:concept_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  conceptsController.updateConcept
+);
 
 // Get all concepts
 router.get("/", authMiddleware, conceptsController.getAllConcepts);

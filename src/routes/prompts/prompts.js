@@ -2,9 +2,20 @@ const express = require("express");
 const router = express.Router();
 const promptsController = require("../../controllers/prompts_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
-router.post("/", authMiddleware, promptsController.addPrompt);
-router.put("/:prompt_id", authMiddleware, promptsController.updatePrompt);
+router.post(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  promptsController.addPrompt
+);
+router.put(
+  "/:prompt_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  promptsController.updatePrompt
+);
 router.get("/", authMiddleware, promptsController.getPrompts);
 router.get(
   "/all",
