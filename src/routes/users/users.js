@@ -43,7 +43,7 @@ router.post(
   "/users/change-password",
   authMiddleware,
   restrictTo("superadmin", "mentor", "orgadmin", "orguser"),
-  changePassword
+  usersController.changePassword
 );
 
 module.exports = router;
