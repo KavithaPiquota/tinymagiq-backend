@@ -19,7 +19,12 @@ router.post("/superadmin", authMiddleware, usersController.addSuperadmin);
 router.post("/mentor", authMiddleware, usersController.addMentor);
 router.post("/orgadmin", authMiddleware, usersController.addOrgadmin);
 router.post("/orguser", authMiddleware, usersController.addOrguser);
-router.put("/:user_id", authMiddleware, usersController.updateUser);
+router.put(
+  "/:user_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.updateUser
+);
 router.get("/", authMiddleware, usersController.getAllUsers);
 router.get("/:user_id", authMiddleware, usersController.getUserById);
 router.get(
@@ -32,6 +37,13 @@ router.get(
   "/organization/:organization_name",
   authMiddleware,
   usersController.getUsersByOrganization
+);
+// New change password route
+router.post(
+  "/users/change-password",
+  authMiddleware,
+  restrictTo("superadmin", "mentor", "orgadmin", "orguser"),
+  changePassword
 );
 
 module.exports = router;

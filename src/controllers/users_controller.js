@@ -550,6 +550,105 @@ const updateUser = async (req, res) => {
   }
 };
 
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user.user_id; // From authMiddleware
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "Current password and new password are required",
+    });
+  }
+
+  if (newPassword === "Tiny@Pass123") {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: 'The password "Tiny@Pass123" is not allowed',
+    });
+  }
+
+  try {
+    // Fetch user to verify current password
+    const userResult = await pool.query(
+      "SELECT password, role_id, is_default_password FROM users WHERE user_id = $1",
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not found",
+        message: "User not found",
+      });
+    }
+
+    const user = userResult.rows[0];
+    const passwordMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized",
+        message: "Current password is incorrect",
+      });
+    }
+
+    // Enforce password complexity
+    if (
+      newPassword.length < 8 ||
+      !/[A-Z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword) ||
+      !/[!@#$%^&*]/.test(newPassword)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message:
+          "New password must be at least 8 characters long and include uppercase, number, and special character",
+      });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password and is_default_password
+    const updateResult = await pool.query(
+      "UPDATE users SET password = $1, is_default_password = $2 WHERE user_id = $3 RETURNING user_id, email, username",
+      [hashedNewPassword, false, userId]
+    );
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not found",
+        message: "User not found",
+      });
+    }
+
+    console.log(
+      `[${new Date().toISOString()}] Password changed for user_id: ${userId}, email: ${updateResult.rows[0].email}`
+    );
+    return res.status(200).json({
+      success: true,
+      data: {
+        user_id: updateResult.rows[0].user_id,
+        email: updateResult.rows[0].email,
+        username: updateResult.rows[0].username,
+      },
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
 const loginUser = async (req, res) => {
   const { identifier, password } = req.body;
 
@@ -842,4 +941,5 @@ module.exports = {
   getUserByEmailOrUsername,
   getUsersByRole,
   getUsersByOrganization,
+  changePassword,
 };
