@@ -40,7 +40,7 @@ router.get(
 );
 // New change password route
 router.post(
-  "/users/change-password",
+  "/change-password",
   authMiddleware,
   restrictTo("superadmin", "mentor", "orgadmin", "orguser"),
   usersController.changePassword
