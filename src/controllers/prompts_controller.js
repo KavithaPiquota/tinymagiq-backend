@@ -1,4 +1,27 @@
 const { pool } = require("../config/database");
+const OpenAI = require("openai");
+
+// Fetch OpenAI API key from database
+const getOpenAIApiKey = async () => {
+  try {
+    const result = await pool.query(
+      "SELECT api_key FROM keys WHERE api_key IS NOT NULL LIMIT 1"
+    );
+    if (result.rows.length === 0) {
+      throw new Error("No OpenAI API key found in database");
+    }
+    return result.rows[0].api_key;
+  } catch (error) {
+    console.error("Error fetching OpenAI API key:", error);
+    throw error;
+  }
+};
+
+// Initialize OpenAI client
+const initializeOpenAI = async () => {
+  const apiKey = await getOpenAIApiKey();
+  return new OpenAI({ apiKey });
+};
 
 // Utility to sanitize input by removing invalid control characters
 const sanitizeInput = (input) => {
@@ -17,6 +40,90 @@ const isValidJsonString = (str) => {
     console.error("Invalid JSON:", e.message);
     return false;
   }
+};
+
+// Utility to process template with selected concept data
+const processTemplate = (templateContent, selectedConcept) => {
+  if (!templateContent || !selectedConcept) {
+    return templateContent;
+  }
+
+  let processedContent = templateContent;
+
+  const replacements = {
+    "{{CONCEPT_NAME}}": selectedConcept.concept_name || "",
+    "{{CONCEPT_CONTENT}}": selectedConcept.concept_content || "",
+    "{{CONCEPT_ENDURING_UNDERSTANDINGS}}":
+      selectedConcept.concept_enduring_understandings || "",
+    "{{CONCEPT_ESSENTIAL_QUESTIONS}}":
+      selectedConcept.concept_essential_questions || "",
+    "{{CONCEPT_KNOWLEDGE_SKILLS}}":
+      selectedConcept.concept_knowledge_skills || "",
+    "{{STAGE_1_CONTENT}}": selectedConcept.stage_1_content || "",
+    "{{STAGE_2_CONTENT}}": selectedConcept.stage_2_content || "",
+    "{{STAGE_3_CONTENT}}": selectedConcept.stage_3_content || "",
+    "{{STAGE_4_CONTENT}}": selectedConcept.stage_4_content || "",
+    "{{STAGE_5_CONTENT}}": selectedConcept.stage_5_content || "",
+    "{{CONCEPT_UNDERSTANDING_RUBRIC}}":
+      selectedConcept.concept_understanding_rubric || "",
+    "{{UNDERSTANDING_SKILLS_RUBRIC}}":
+      selectedConcept.understanding_skills_rubric || "",
+    "{{LEARNING_ASSESSMENT_DIMENSIONS}}":
+      selectedConcept.learning_assessment_dimensions || "",
+  };
+
+  Object.entries(replacements).forEach(([placeholder, value]) => {
+    processedContent = processedContent.replace(
+      new RegExp(placeholder, "g"),
+      value
+    );
+  });
+
+  return processedContent;
+};
+
+// Utility to load template from database
+const loadTemplate = async (templateName, organization_id, batch_id) => {
+  let query = `
+    SELECT (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+    FROM prompts
+    WHERE prompt_type = $1
+    AND isarchived = FALSE
+    AND prompt_level = 'global'
+    AND organization_id = $2
+    AND batch_id = $3
+  `;
+  let values = [templateName, organization_id, batch_id];
+
+  console.log("Executing batch prompt query:", query, "with values:", values);
+  let result = await pool.query(query, values);
+  if (result.rows.length > 0) {
+    console.log(
+      `Batch-level prompt found for ${templateName}, organization_id: ${organization_id}, batch_id: ${batch_id}`
+    );
+    return result.rows[0].prompt_content;
+  }
+
+  console.log(
+    `No batch-level prompt found for ${templateName}, falling back to global`
+  );
+  query = `
+    SELECT (user_content || ' ' || json_content || ' ' || COALESCE(additional_content, '')) AS prompt_content
+    FROM prompts
+    WHERE prompt_type = $1
+    AND isarchived = FALSE
+    AND prompt_level = 'global'
+  `;
+  values = [templateName];
+
+  console.log("Executing global prompt query:", query, "with values:", values);
+  result = await pool.query(query, values);
+  if (result.rows.length > 0) {
+    console.log(`Global prompt found for ${templateName}`);
+    return result.rows[0].prompt_content;
+  }
+
+  throw new Error(`Template not found for ${templateName}`);
 };
 
 const addPrompt = async (req, res) => {
@@ -936,6 +1043,231 @@ const getPromptsWithFallback = async (req, res) => {
   }
 };
 
+// New function to process LLM request on backend
+const processLLM = async (req, res) => {
+  const {
+    username,
+    selectedPrompt,
+    selectedModel,
+    sessionHistory,
+    userPrompt,
+    selectedConcept,
+    organizationId,
+    batchId,
+  } = req.body;
+
+  // Log request for debugging
+  console.log("processLLM: Received request:", {
+    username,
+    selectedPrompt,
+    selectedModel,
+    sessionHistoryLength: sessionHistory?.length,
+    userPrompt,
+    selectedConcept: selectedConcept?.concept_name,
+    organizationId,
+    batchId,
+  });
+
+  try {
+    // Validate inputs
+    if (
+      !selectedPrompt ||
+      !selectedModel ||
+      !selectedConcept ||
+      !organizationId ||
+      !batchId
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message:
+          "selectedPrompt, selectedModel, selectedConcept, organizationId, and batchId are required",
+      });
+    }
+
+    // Initialize OpenAI client
+    const openai = await initializeOpenAI();
+
+    // Load the appropriate template using fallback logic
+    let templateContent = await loadTemplate(
+      selectedPrompt,
+      organizationId,
+      batchId
+    );
+
+    // Process template with selected concept data
+    const processedSystemContent = processTemplate(
+      templateContent,
+      selectedConcept
+    );
+
+    // Prepare user input
+    const isFirstMessage = sessionHistory.length === 0;
+    const userInput = isFirstMessage
+      ? userPrompt
+      : [
+          ...sessionHistory.map(
+            (entry) => `Mentee: ${entry.Mentee}\nMentor: ${entry.Mentor}`
+          ),
+          `Mentee: ${userPrompt}`,
+        ].join("\n");
+
+    // Prepare messages for OpenAI API
+    const messages = [{ role: "system", content: processedSystemContent }];
+
+    if (userInput && userInput.trim()) {
+      messages.push({ role: "user", content: userInput.trim() });
+    } else {
+      messages.push({ role: "user", content: "" });
+    }
+
+    // Call OpenAI API
+    console.log("Calling OpenAI API with model:", selectedModel);
+    const llmResponse = await openai.chat.completions.create({
+      model: selectedModel,
+      messages,
+      temperature: 0.7,
+      max_tokens: 4000,
+      top_p: 1,
+    });
+
+    const responseText = llmResponse.choices[0].message.content;
+    console.log(
+      "OpenAI response received:",
+      responseText.substring(0, 100) + "..."
+    );
+
+    // Default response structure
+    let parsedResponse = {
+      apiResponseText:
+        "The LLM did not return a valid response. Please try again.",
+      interactionCompleted: false,
+      endRequested: false,
+      readyForNextStage: false,
+      currentStage: 0,
+      pauseRequested: false,
+    };
+
+    // Handle assessmentPrompt specially
+    if (selectedPrompt === "assessmentPrompt") {
+      console.log("Assessment LLM raw response:", responseText);
+      parsedResponse.apiResponseText = responseText;
+      return res.json({
+        success: true,
+        data: parsedResponse,
+        message: "LLM processing completed successfully",
+      });
+    }
+
+    // Parse response
+    try {
+      // Method 1: Direct JSON parsing
+      try {
+        const parsed = JSON.parse(responseText.trim());
+        if (parsed.userText) {
+          parsedResponse = {
+            apiResponseText: parsed.userText,
+            interactionCompleted: parsed.interactionCompleted || false,
+            endRequested: parsed.endRequested || false,
+            readyForNextStage: parsed.readyForNextStage || false,
+            currentStage: parsed.currentStage || 0,
+            pauseRequested: parsed.pauseRequested || false,
+          };
+          return res.json({
+            success: true,
+            data: parsedResponse,
+            message: "LLM processing completed successfully",
+          });
+        }
+      } catch (directJsonError) {
+        console.warn("Direct JSON parsing failed:", directJsonError.message);
+      }
+
+      // Method 2: Extract JSON from code blocks
+      const jsonBlockMatch = responseText.match(
+        /```(?:json)?\s*([\s\S]*?)\s*```/
+      );
+      if (jsonBlockMatch && jsonBlockMatch[1]) {
+        try {
+          const extractedJson = JSON.parse(jsonBlockMatch[1].trim());
+          if (extractedJson.userText) {
+            parsedResponse = {
+              apiResponseText: extractedJson.userText,
+              interactionCompleted: extractedJson.interactionCompleted || false,
+              endRequested: extractedJson.endRequested || false,
+              readyForNextStage: extractedJson.readyForNextStage || false,
+              currentStage: extractedJson.currentStage || 0,
+              pauseRequested: extractedJson.pauseRequested || false,
+            };
+            return res.json({
+              success: true,
+              data: parsedResponse,
+              message: "LLM processing completed successfully",
+            });
+          }
+        } catch (blockJsonError) {
+          console.warn("JSON block extraction failed:", blockJsonError.message);
+        }
+      }
+
+      // Method 3: Find any JSON-like structure
+      const jsonRegex = /\{[\s\S]*?"userText"[\s\S]*?\}/g;
+      const potentialJsonMatches = responseText.match(jsonRegex);
+
+      if (potentialJsonMatches) {
+        for (const match of potentialJsonMatches) {
+          try {
+            const extractedJson = JSON.parse(match);
+            if (extractedJson.userText) {
+              parsedResponse = {
+                apiResponseText: extractedJson.userText,
+                interactionCompleted:
+                  extractedJson.interactionCompleted || false,
+                endRequested: extractedJson.endRequested || false,
+                readyForNextStage: extractedJson.readyForNextStage || false,
+                currentStage: extractedJson.currentStage || 0,
+                pauseRequested: extractedJson.pauseRequested || false,
+              };
+              return res.json({
+                success: true,
+                data: parsedResponse,
+                message: "LLM processing completed successfully",
+              });
+            }
+          } catch (matchError) {
+            continue;
+          }
+        }
+      }
+
+      // Fallback: Use raw text
+      console.warn("All JSON parsing methods failed, using raw text");
+      parsedResponse.apiResponseText = responseText;
+      return res.json({
+        success: true,
+        data: parsedResponse,
+        message: "LLM processing completed with raw text fallback",
+      });
+    } catch (err) {
+      console.error("Error processing LLM response:", err);
+      return res.json({
+        success: true,
+        data: parsedResponse,
+        message: "LLM processing completed with raw text fallback",
+      });
+    }
+  } catch (error) {
+    console.error("Error in processLLM:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message.includes("Template not found")
+        ? `No prompt found for ${selectedPrompt}. Please contact support.`
+        : error.message,
+    });
+  }
+};
+
 module.exports = {
   addPrompt,
   updatePrompt,
@@ -945,4 +1277,5 @@ module.exports = {
   getBatchPrompts,
   getArchivedPrompts,
   getPromptsWithFallback,
+  processLLM,
 };

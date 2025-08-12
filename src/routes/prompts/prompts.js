@@ -36,4 +36,12 @@ router.get(
   promptsController.getPromptsWithFallback
 );
 
+// New LLM processing endpoint
+router.post(
+  "/process",
+  authMiddleware,
+  restrictTo("superadmin", "mentor", "orgadmin", "orguser"),
+  promptsController.processLLM
+);
+
 module.exports = router;
