@@ -14,5 +14,12 @@ router.put(
   restrictTo("superadmin"),
   apikeyController.updateApiKey
 );
-
+// POST LLM Request (new endpoint)
+router.post(
+  "/call-llm",
+  authMiddleware,
+  restrictTo("orguser", "superadmin"),
+  apikeyController.callLLM
+);
+ 
 module.exports = router;
