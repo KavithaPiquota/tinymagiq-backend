@@ -1,5 +1,7 @@
 const { pool } = require("../config/database");
 const OpenAI = require("openai");
+const NodeCache = require("node-cache");
+const cache = new NodeCache({ stdTTL: 3600 }); // 1-hour TTL for template caching
 
 // Fetch OpenAI API key from database
 const getOpenAIApiKey = async () => {
@@ -1056,16 +1058,21 @@ const processLLM = async (req, res) => {
     batchId,
   } = req.body;
 
-  // Log request for debugging
-  console.log("processLLM: Received request:", {
-    username,
-    selectedPrompt,
-    selectedModel,
-    sessionHistoryLength: sessionHistory?.length,
-    userPrompt,
-    selectedConcept: selectedConcept?.concept_name,
-    organizationId,
-    batchId,
+  console.log("processLLM: Request received:", {
+    url: req.url,
+    method: req.method,
+    origin: req.get("Origin"),
+    headers: req.headers,
+    body: {
+      username,
+      selectedPrompt,
+      selectedModel,
+      sessionHistoryLength: sessionHistory?.length,
+      userPrompt,
+      selectedConcept: selectedConcept?.concept_name,
+      organizationId,
+      batchId,
+    },
   });
 
   try {
@@ -1077,6 +1084,7 @@ const processLLM = async (req, res) => {
       !organizationId ||
       !batchId
     ) {
+      console.error("Validation failed: Missing required fields");
       return res.status(400).json({
         success: false,
         error: "Bad request",
@@ -1086,35 +1094,46 @@ const processLLM = async (req, res) => {
     }
 
     // Initialize OpenAI client
+    console.log("Initializing OpenAI client...");
     const openai = await initializeOpenAI();
 
-    // Load the appropriate template using fallback logic
-    let templateContent = await loadTemplate(
-      selectedPrompt,
-      organizationId,
-      batchId
-    );
+    // Load template with caching
+    console.log(`Loading template for ${selectedPrompt}...`);
+    const cacheKey = `${selectedPrompt}:${organizationId}:${batchId}`;
+    let templateContent = cache.get(cacheKey);
+    if (!templateContent) {
+      templateContent = await loadTemplate(
+        selectedPrompt,
+        organizationId,
+        batchId
+      );
+      cache.set(cacheKey, templateContent);
+      console.log(`Cached template ${cacheKey}`);
+    }
+    console.log("Template loaded:", templateContent.substring(0, 100) + "...");
 
-    // Process template with selected concept data
+    // Process template
+    console.log("Processing template...");
     const processedSystemContent = processTemplate(
       templateContent,
       selectedConcept
     );
 
-    // Prepare user input
+    // Prepare user input (truncate for assessmentPrompt)
     const isFirstMessage = sessionHistory.length === 0;
+    const maxHistoryEntries =
+      selectedPrompt === "assessmentPrompt" ? 5 : sessionHistory.length;
     const userInput = isFirstMessage
       ? userPrompt
       : [
-          ...sessionHistory.map(
-            (entry) => `Mentee: ${entry.Mentee}\nMentor: ${entry.Mentor}`
-          ),
+          ...sessionHistory
+            .slice(-maxHistoryEntries)
+            .map((entry) => `Mentee: ${entry.Mentee}\nMentor: ${entry.Mentor}`),
           `Mentee: ${userPrompt}`,
         ].join("\n");
 
     // Prepare messages for OpenAI API
     const messages = [{ role: "system", content: processedSystemContent }];
-
     if (userInput && userInput.trim()) {
       messages.push({ role: "user", content: userInput.trim() });
     } else {
@@ -1122,20 +1141,40 @@ const processLLM = async (req, res) => {
     }
 
     // Call OpenAI API
-    console.log("Calling OpenAI API with model:", selectedModel);
-    const llmResponse = await openai.chat.completions.create({
-      model: selectedModel,
-      messages,
-      temperature: 0.7,
-      max_tokens: 4000,
-      top_p: 1,
-    });
-
-    const responseText = llmResponse.choices[0].message.content;
+    const maxTokens = selectedPrompt === "assessmentPrompt" ? 6000 : 4000;
     console.log(
-      "OpenAI response received:",
-      responseText.substring(0, 100) + "..."
+      `Calling OpenAI API with model: ${selectedModel}, max_tokens: ${maxTokens}`
     );
+    const startTime = Date.now();
+
+    // Optional: Use streaming for assessmentPrompt
+    let responseText = "";
+    if (selectedPrompt === "assessmentPrompt") {
+      const stream = await openai.chat.completions.create({
+        model: selectedModel,
+        messages,
+        temperature: 0.7,
+        max_tokens: maxTokens,
+        top_p: 1,
+        stream: true,
+      });
+      for await (const chunk of stream) {
+        responseText += chunk.choices[0]?.delta?.content || "";
+      }
+    } else {
+      const llmResponse = await openai.chat.completions.create({
+        model: selectedModel,
+        messages,
+        temperature: 0.7,
+        max_tokens: maxTokens,
+        top_p: 1,
+      });
+      responseText = llmResponse.choices[0].message.content;
+    }
+
+    const endTime = Date.now();
+    console.log(`OpenAI API call took ${(endTime - startTime) / 1000} seconds`);
+    console.log("OpenAI response:", responseText.substring(0, 200) + "...");
 
     // Default response structure
     let parsedResponse = {
@@ -1150,8 +1189,9 @@ const processLLM = async (req, res) => {
 
     // Handle assessmentPrompt specially
     if (selectedPrompt === "assessmentPrompt") {
-      console.log("Assessment LLM raw response:", responseText);
+      console.log("Processing assessmentPrompt response...");
       parsedResponse.apiResponseText = responseText;
+      console.log("Sending response:", parsedResponse);
       return res.json({
         success: true,
         data: parsedResponse,
@@ -1159,7 +1199,7 @@ const processLLM = async (req, res) => {
       });
     }
 
-    // Parse response
+    // Parse response for other prompts
     try {
       // Method 1: Direct JSON parsing
       try {
@@ -1173,6 +1213,7 @@ const processLLM = async (req, res) => {
             currentStage: parsed.currentStage || 0,
             pauseRequested: parsed.pauseRequested || false,
           };
+          console.log("Sending response (direct JSON):", parsedResponse);
           return res.json({
             success: true,
             data: parsedResponse,
@@ -1199,6 +1240,7 @@ const processLLM = async (req, res) => {
               currentStage: extractedJson.currentStage || 0,
               pauseRequested: extractedJson.pauseRequested || false,
             };
+            console.log("Sending response (code block):", parsedResponse);
             return res.json({
               success: true,
               data: parsedResponse,
@@ -1213,7 +1255,6 @@ const processLLM = async (req, res) => {
       // Method 3: Find any JSON-like structure
       const jsonRegex = /\{[\s\S]*?"userText"[\s\S]*?\}/g;
       const potentialJsonMatches = responseText.match(jsonRegex);
-
       if (potentialJsonMatches) {
         for (const match of potentialJsonMatches) {
           try {
@@ -1228,6 +1269,7 @@ const processLLM = async (req, res) => {
                 currentStage: extractedJson.currentStage || 0,
                 pauseRequested: extractedJson.pauseRequested || false,
               };
+              console.log("Sending response (regex match):", parsedResponse);
               return res.json({
                 success: true,
                 data: parsedResponse,
@@ -1243,6 +1285,7 @@ const processLLM = async (req, res) => {
       // Fallback: Use raw text
       console.warn("All JSON parsing methods failed, using raw text");
       parsedResponse.apiResponseText = responseText;
+      console.log("Sending response (raw text):", parsedResponse);
       return res.json({
         success: true,
         data: parsedResponse,
@@ -1250,6 +1293,8 @@ const processLLM = async (req, res) => {
       });
     } catch (err) {
       console.error("Error processing LLM response:", err);
+      parsedResponse.apiResponseText = responseText;
+      console.log("Sending response (error fallback):", parsedResponse);
       return res.json({
         success: true,
         data: parsedResponse,
