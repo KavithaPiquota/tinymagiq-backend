@@ -14,6 +14,7 @@ const orgadminRoutes = require("./orgadmin/orgadmin");
 const apikeyRoutes = require("./apikey/apikey");
 const reportsRoutes = require("./reports/reports");
 const promptsRouter = require("./prompts/prompts");
+const practicemodeRoutes = require("./practicemode/practicemode");
 
 // Import sanitization middleware with error handling
 let sanitizeRequest;
@@ -109,6 +110,8 @@ router.use("/reports", reportsRoutes);
 
 //Prompts template API
 router.use("/prompts", promptsRouter);
+
+router.use("/practicemode", practicemodeRoutes);
 
 // Chat routes - with error handling
 try {
