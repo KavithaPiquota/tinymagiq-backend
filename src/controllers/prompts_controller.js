@@ -54,7 +54,7 @@ const sanitizeInput = (input) => {
 
 // Utility to validate JSON string
 const isValidJsonString = (str) => {
-  if (typeof str !== "string") return true; // Non-string inputs are not validated as JSON
+  if (typeof str !== "string") return true;
   try {
     JSON.parse(str);
     return true;
@@ -1102,12 +1102,16 @@ const processLLM = async (req, res) => {
   const safeUsername = sanitizeUsername(username);
   const logFilePath = path.join(__dirname, "../logs", `${safeUsername}.txt`);
 
-  // Prepare log entry for user input
+  // Prepare log entry for user input, including only the last sessionHistory entry
   const truncatedConcept =
     JSON.stringify(selectedConcept).split(/\s+/).slice(0, 30).join(" ") +
     (JSON.stringify(selectedConcept).split(/\s+/).length > 30 ? " ..." : "");
   const modifiedBody = {
     ...req.body,
+    sessionHistory:
+      sessionHistory.length > 0
+        ? [sessionHistory[sessionHistory.length - 1]]
+        : [],
     selectedConcept: truncatedConcept,
   };
   const logEntry = `
@@ -1247,14 +1251,6 @@ ${responseText}
       console.log("Processing assessmentPrompt response...");
       parsedResponse.apiResponseText = responseText;
       console.log("Sending response:", parsedResponse);
-      // Append parsed response to log
-      await fs.appendFile(
-        logFilePath,
-        `Parsed Response:
-${JSON.stringify(parsedResponse, null, 2)}
-
-`
-      );
       return res.json({
         success: true,
         data: parsedResponse,
@@ -1277,12 +1273,6 @@ ${JSON.stringify(parsedResponse, null, 2)}
             pauseRequested: parsed.pauseRequested || false,
           };
           console.log("Sending response (direct JSON):", parsedResponse);
-          // Append parsed response to log
-          await fs.appendFile(
-            logFilePath,
-            `Parsed Response:
-            ${JSON.stringify(parsedResponse, null, 2)}`
-          );
           return res.json({
             success: true,
             data: parsedResponse,
@@ -1310,14 +1300,6 @@ ${JSON.stringify(parsedResponse, null, 2)}
               pauseRequested: extractedJson.pauseRequested || false,
             };
             console.log("Sending response (code block):", parsedResponse);
-            // Append parsed response to log
-            await fs.appendFile(
-              logFilePath,
-              `Parsed Response:
-${JSON.stringify(parsedResponse, null, 2)}
-
-`
-            );
             return res.json({
               success: true,
               data: parsedResponse,
@@ -1347,14 +1329,6 @@ ${JSON.stringify(parsedResponse, null, 2)}
                 pauseRequested: extractedJson.pauseRequested || false,
               };
               console.log("Sending response (regex match):", parsedResponse);
-              // Append parsed response to log
-              await fs.appendFile(
-                logFilePath,
-                `Parsed Response:
-${JSON.stringify(parsedResponse, null, 2)}
-
-`
-              );
               return res.json({
                 success: true,
                 data: parsedResponse,
@@ -1371,14 +1345,6 @@ ${JSON.stringify(parsedResponse, null, 2)}
       console.warn("All JSON parsing methods failed, using raw text");
       parsedResponse.apiResponseText = responseText;
       console.log("Sending response (raw text):", parsedResponse);
-      // Append parsed response to log
-      await fs.appendFile(
-        logFilePath,
-        `Parsed Response:
-${JSON.stringify(parsedResponse, null, 2)}
-
-`
-      );
       return res.json({
         success: true,
         data: parsedResponse,
@@ -1388,14 +1354,6 @@ ${JSON.stringify(parsedResponse, null, 2)}
       console.error("Error processing LLM response:", err);
       parsedResponse.apiResponseText = responseText;
       console.log("Sending response (error fallback):", parsedResponse);
-      // Append parsed response to log
-      await fs.appendFile(
-        logFilePath,
-        `Parsed Response:
-${JSON.stringify(parsedResponse, null, 2)}
-
-`
-      );
       return res.json({
         success: true,
         data: parsedResponse,
