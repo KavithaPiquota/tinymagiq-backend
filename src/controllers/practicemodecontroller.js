@@ -300,7 +300,7 @@ class practicemodeController {
                 return res.json({
                     success: true,
                     data: {
-                        sessionType: 'resume',
+                        PracSessionType: 'resume',
                         hasActiveSession: true,
                         shouldStartFresh: false,
                         practicemode: {
@@ -319,7 +319,7 @@ class practicemodeController {
                 return res.json({
                     success: true,
                     data: {
-                        sessionType: 'fresh',
+                        PracSessionType: 'fresh',
                         hasActiveSession: false,
                         shouldStartFresh: true,
                         practicemode: null,
@@ -343,7 +343,7 @@ class practicemodeController {
             return res.json({
                 success: true,
                 data: {
-                    sessionType: 'fresh',
+                    PracSessionType: 'fresh',
                     hasActiveSession: false,
                     shouldStartFresh: true,
                     practicemode: null,
