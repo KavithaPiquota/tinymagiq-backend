@@ -648,6 +648,9 @@ const changePassword = async (req, res) => {
     });
   }
 };
+// Maximum login attempts and lockout duration
+const MAX_LOGIN_ATTEMPTS = 3;
+const LOCKOUT_DURATION_MINUTES = 10;
 
 const loginUser = async (req, res) => {
   const { identifier, password } = req.body;
@@ -661,8 +664,39 @@ const loginUser = async (req, res) => {
   }
 
   try {
+    // Check for lockout or failed attempts
+    let failedAttempts = 0;
+    const userCheck = await pool.query(
+      "SELECT user_id, failed_login_attempts, lockout_until FROM users WHERE email = $1 OR username = $1",
+      [identifier]
+    );
+
+    if (userCheck.rows.length > 0) {
+      const { user_id, failed_login_attempts, lockout_until } =
+        userCheck.rows[0];
+      failedAttempts = failed_login_attempts;
+
+      if (lockout_until && new Date(lockout_until) > new Date()) {
+        const minutesLeft = Math.ceil(
+          (new Date(lockout_until) - new Date()) / 60000
+        );
+        return res.status(429).json({
+          success: false,
+          error: "Too many requests",
+          message: `Account is locked. Try again in ${minutesLeft} minute(s).`,
+        });
+      } else if (lockout_until && new Date(lockout_until) <= new Date()) {
+        // Lockout expired, reset attempts and lockout
+        await pool.query(
+          "UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1",
+          [user_id]
+        );
+        failedAttempts = 0;
+      }
+    }
+
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.first_name, u.last_name, u.password, u.is_active, u.is_default_password " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.password, u.is_active, u.is_default_password, u.failed_login_attempts " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -671,14 +705,17 @@ const loginUser = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      // Simulate attempt tracking for non-existent users to prevent enumeration
+      const remainingAttempts = MAX_LOGIN_ATTEMPTS - (failedAttempts + 1);
       return res.status(401).json({
         success: false,
         error: "Unauthorized",
-        message: "Invalid credentials",
+        message: `Invalid credentials. ${remainingAttempts} attempt(s) remaining.`,
       });
     }
 
     const user = result.rows[0];
+
     if (!user.is_active) {
       return res.status(403).json({
         success: false,
@@ -697,12 +734,43 @@ const loginUser = async (req, res) => {
 
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
+      // Increment failed attempts
+      const newAttempts = user.failed_login_attempts + 1;
+      let lockoutUntil = null;
+
+      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+        lockoutUntil = new Date(
+          Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000
+        );
+        await pool.query(
+          "UPDATE users SET failed_login_attempts = $1, lockout_until = $2 WHERE user_id = $3",
+          [newAttempts, lockoutUntil, user.user_id]
+        );
+        return res.status(429).json({
+          success: false,
+          error: "Too many requests",
+          message: `Account is locked due to too many failed attempts. Try again in ${LOCKOUT_DURATION_MINUTES} minute(s).`,
+        });
+      }
+
+      await pool.query(
+        "UPDATE users SET failed_login_attempts = $1 WHERE user_id = $2",
+        [newAttempts, user.user_id]
+      );
+
+      const remainingAttempts = MAX_LOGIN_ATTEMPTS - newAttempts;
       return res.status(401).json({
         success: false,
         error: "Unauthorized",
-        message: "Invalid credentials",
+        message: `Invalid Password. ${remainingAttempts} attempt(s) remaining.`,
       });
     }
+
+    // Reset failed attempts and lockout on successful login
+    await pool.query(
+      "UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1",
+      [user.user_id]
+    );
 
     const token = jwt.sign(
       {

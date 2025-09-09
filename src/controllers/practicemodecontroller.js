@@ -49,9 +49,7 @@ class practicemodeController {
             // Business logic for status-stage relationship
             if (finalStatus === 'not_started') {
                 finalStage = 0; // not_started is always stage 0
-            } else if (finalStatus === 'completed') {
-                finalStage = 5; // completed is always stage 5
-            }
+            } 
             // inprogress can be any stage 0-5
 
             if (!Array.isArray(conversation)) {
@@ -443,9 +441,7 @@ class practicemodeController {
                 // Business logic for status-stage relationship
                 if (finalStatus === 'not_started') {
                     finalStage = 0;
-                } else if (finalStatus === 'completed') {
-                    finalStage = 5;
-                }
+                } 
 
                 // Process scoring data if status is completed
                 let scoringFields = {
