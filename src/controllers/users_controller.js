@@ -133,7 +133,7 @@ const addUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      "INSERT INTO users (role_id, organization_id, email, username, first_name, last_name, password, is_active, is_default_password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+      "INSERT INTO users (role_id, organization_id, email, username, first_name, last_name, password, is_active, is_default_password, session_token_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
       [
         role_id,
         organization_id,
@@ -144,6 +144,7 @@ const addUser = async (req, res) => {
         hashedPassword,
         is_active,
         is_default_password,
+        0, // Initial session_token_version
       ]
     );
     res.status(201).json({
@@ -489,6 +490,7 @@ const updateUser = async (req, res) => {
       values.push(hashedPassword);
       fields.push(`is_default_password = $${index++}`);
       values.push(false);
+      fields.push(`session_token_version = session_token_version + 1`);
     }
     if (is_active !== undefined) {
       fields.push(`is_active = $${index++}`);
@@ -573,7 +575,7 @@ const changePassword = async (req, res) => {
   try {
     // Fetch user to verify current password
     const userResult = await pool.query(
-      "SELECT password, role_id, is_default_password FROM users WHERE user_id = $1",
+      "SELECT password, role_id, is_default_password, session_token_version FROM users WHERE user_id = $1",
       [userId]
     );
 
@@ -613,9 +615,9 @@ const changePassword = async (req, res) => {
     // Hash new password
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update password and is_default_password
+    // Update password, is_default_password, and increment session_token_version
     const updateResult = await pool.query(
-      "UPDATE users SET password = $1, is_default_password = $2 WHERE user_id = $3 RETURNING user_id, email, username",
+      "UPDATE users SET password = $1, is_default_password = $2, session_token_version = session_token_version + 1 WHERE user_id = $3 RETURNING user_id, email, username",
       [hashedNewPassword, false, userId]
     );
 
@@ -637,7 +639,7 @@ const changePassword = async (req, res) => {
         email: updateResult.rows[0].email,
         username: updateResult.rows[0].username,
       },
-      message: "Password changed successfully",
+      message: "Password changed successfully. Please log in again.",
     });
   } catch (error) {
     console.error("Error changing password:", error);
@@ -696,7 +698,7 @@ const loginUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.password, u.is_active, u.is_default_password, u.failed_login_attempts " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.password, u.is_active, u.is_default_password, u.failed_login_attempts, u.session_token_version " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -766,11 +768,18 @@ const loginUser = async (req, res) => {
       });
     }
 
-    // Reset failed attempts and lockout on successful login
+    // Reset failed attempts and lockout, increment session_token_version
     await pool.query(
-      "UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1",
+      "UPDATE users SET failed_login_attempts = 0, lockout_until = NULL, session_token_version = session_token_version + 1 WHERE user_id = $1",
       [user.user_id]
     );
+
+    // Fetch updated session_token_version
+    const updatedUser = await pool.query(
+      "SELECT session_token_version FROM users WHERE user_id = $1",
+      [user.user_id]
+    );
+    const sessionTokenVersion = updatedUser.rows[0].session_token_version;
 
     const token = jwt.sign(
       {
@@ -778,6 +787,7 @@ const loginUser = async (req, res) => {
         role: user.role,
         email: user.email,
         username: user.username,
+        session_token_version: sessionTokenVersion,
       },
       process.env.JWT_SECRET,
       { expiresIn: "4h" }
@@ -809,12 +819,35 @@ const loginUser = async (req, res) => {
     });
   }
 };
+const logoutUser = async (req, res) => {
+  const userId = req.user.user_id; // From authMiddleware
+
+  try {
+    // Increment session_token_version to invalidate current token
+    await pool.query(
+      "UPDATE users SET session_token_version = session_token_version + 1 WHERE user_id = $1",
+      [userId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Error logging out user:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
 
 const verifyUser = async (req, res) => {
   try {
     const user = req.user; // From authMiddleware
     const result = await pool.query(
-      "SELECT u.user_id, r.role, u.email, u.username, u.is_active " +
+      "SELECT u.user_id, r.role, u.email, u.username, u.is_active, u.session_token_version " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "WHERE u.user_id = $1",
@@ -829,15 +862,23 @@ const verifyUser = async (req, res) => {
       });
     }
 
-    const { user_id, role, email, username, is_active } = result.rows[0];
+    const dbUser = result.rows[0];
+    if (dbUser.session_token_version !== user.session_token_version) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized",
+        message: "Session token is invalid or has been expired",
+      });
+    }
+
     res.json({
       success: true,
       data: {
-        user_id,
-        role,
-        email,
-        username,
-        is_active,
+        user_id: dbUser.user_id,
+        role: dbUser.role,
+        email: dbUser.email,
+        username: dbUser.username,
+        is_active: dbUser.is_active,
       },
       message: "User verified successfully",
     });
@@ -1003,6 +1044,7 @@ module.exports = {
   addOrguser,
   updateUser,
   loginUser,
+  logoutUser,
   verifyUser,
   getAllUsers,
   getUserById,

@@ -15,10 +15,30 @@ router.post(
   restrictTo("superadmin"),
   usersController.addUser
 );
-router.post("/superadmin", authMiddleware, usersController.addSuperadmin);
-router.post("/mentor", authMiddleware, usersController.addMentor);
-router.post("/orgadmin", authMiddleware, usersController.addOrgadmin);
-router.post("/orguser", authMiddleware, usersController.addOrguser);
+router.post(
+  "/superadmin",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.addSuperadmin
+);
+router.post(
+  "/mentor",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.addMentor
+);
+router.post(
+  "/orgadmin",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.addOrgadmin
+);
+router.post(
+  "/orguser",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.addOrguser
+);
 router.put(
   "/:user_id",
   authMiddleware,
@@ -32,7 +52,12 @@ router.get(
   authMiddleware,
   usersController.getUserByEmailOrUsername
 );
-router.get("/role/:role_name", authMiddleware, usersController.getUsersByRole);
+router.get(
+  "/role/:role_name",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.getUsersByRole
+);
 router.get(
   "/organization/:organization_name",
   authMiddleware,
@@ -45,5 +70,7 @@ router.post(
   restrictTo("superadmin", "mentor", "orgadmin", "orguser"),
   usersController.changePassword
 );
+// Logout route
+router.post("/logout", authMiddleware, usersController.logoutUser);
 
 module.exports = router;
