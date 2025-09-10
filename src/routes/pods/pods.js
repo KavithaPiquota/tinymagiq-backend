@@ -34,6 +34,7 @@ router.get(
 router.get(
   "/mentor/email/:mentor_email",
   authMiddleware,
+  restrictTo("mentor"),
   podsController.getPodsByMentorEmail
 );
 
@@ -41,6 +42,7 @@ router.get(
 router.get(
   "/mentor/id/:mentor_id",
   authMiddleware,
+  restrictTo("mentor"),
   podsController.getPodsByMentorId
 );
 
@@ -48,6 +50,11 @@ router.get(
 router.get("/name/:pod_name", authMiddleware, podsController.getPodByName);
 
 // Get pod by pod_id
-router.get("/:pod_id", authMiddleware, podsController.getPodById);
+router.get(
+  "/:pod_id",
+  authMiddleware,
+  restrictTo("mentor", "orgadmin", "superadmin"),
+  podsController.getPodById
+);
 
 module.exports = router;

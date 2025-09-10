@@ -45,7 +45,12 @@ router.put(
   restrictTo("superadmin"),
   usersController.updateUser
 );
-router.get("/", authMiddleware, usersController.getAllUsers);
+router.get(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  usersController.getAllUsers
+);
 router.get("/:user_id", authMiddleware, usersController.getUserById);
 router.get(
   "/identifier/:identifier",

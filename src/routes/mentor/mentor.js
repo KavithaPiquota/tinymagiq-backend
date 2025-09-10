@@ -2,11 +2,13 @@ const express = require("express");
 const router = express.Router();
 const mentorController = require("../../controllers/mentor_controller");
 const authMiddleware = require("../../middleware/auth");
+const { restrictTo } = require("../../middleware/rbac");
 
 // Get all pods assigned to a mentor
 router.get(
   "/pods/:mentor_identifier",
   authMiddleware,
+  restrictTo("mentor"),
   mentorController.getMentorPods
 );
 
@@ -14,6 +16,7 @@ router.get(
 router.get(
   "/pods/:mentor_identifier/concepts",
   authMiddleware,
+  restrictTo("mentor"),
   mentorController.getMentorPodConcepts
 );
 
@@ -21,6 +24,7 @@ router.get(
 router.get(
   "/pods/:mentor_identifier/orguser-progress",
   authMiddleware,
+  restrictTo("mentor"),
   mentorController.getMentorOrguserProgress
 );
 
@@ -28,6 +32,7 @@ router.get(
 router.get(
   "/pods/:mentor_identifier/orguser/:identifier",
   authMiddleware,
+  restrictTo("mentor"),
   mentorController.getMentorOrguserDetails
 );
 

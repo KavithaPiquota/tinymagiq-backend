@@ -36,41 +36,41 @@ const router = express.Router();
 router.use(sanitizeRequest);
 
 // API version info
-router.get("/", (req, res) => {
-  res.json({
-    name: "TinyMagiq API",
-    version: "1.0.0",
-    description:
-      "API for managing templates, roles, organizations and chat conversations",
-    endpoints: {
-      // Role endpoints
-      roles: "/api/roles",
+// router.get("/", (req, res) => {
+//   res.json({
+//     name: "TinyMagiq API",
+//     version: "1.0.0",
+//     description:
+//       "API for managing templates, roles, organizations and chat conversations",
+//     endpoints: {
+//       // Role endpoints
+//       roles: "/api/roles",
 
-      // Organization endpoints
-      organizations: "/api/organizations",
-      createOrganization: "/api/organizations",
-      activeOrganizations: "/api/organizations/active",
-      inactiveOrganizations: "/api/organizations/inactive",
+//       // Organization endpoints
+//       organizations: "/api/organizations",
+//       createOrganization: "/api/organizations",
+//       activeOrganizations: "/api/organizations/active",
+//       inactiveOrganizations: "/api/organizations/inactive",
 
-      // Template endpoints
-      templates: "/api/templates",
-      defaults: "/api/templates/defaults",
-      list: "/api/templates/list",
-      process: "/api/templates/process",
-      restore: "/api/templates/restore",
+//       // Template endpoints
+//       templates: "/api/templates",
+//       defaults: "/api/templates/defaults",
+//       list: "/api/templates/list",
+//       process: "/api/templates/process",
+//       restore: "/api/templates/restore",
 
-      // Chat endpoints
-      chat: "/api/chat",
-      latestChat: "/api/chat/latest/:user_id",
-      chatCounts: "/api/chat/counts/:user_id",
-      userChats: "/api/chat/user/:user_id",
+//       // Chat endpoints
+//       chat: "/api/chat",
+//       latestChat: "/api/chat/latest/:user_id",
+//       chatCounts: "/api/chat/counts/:user_id",
+//       userChats: "/api/chat/user/:user_id",
 
-      // Utility endpoints
-      health: "/health",
-    },
-    documentation: "See README.md for detailed API documentation",
-  });
-});
+//       // Utility endpoints
+//       health: "/health",
+//     },
+//     documentation: "See README.md for detailed API documentation",
+//   });
+// });
 
 // Role management routes
 router.use("/roles", rolesRoutes);

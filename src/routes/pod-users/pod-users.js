@@ -24,6 +24,7 @@ router.put(
 router.get(
   "/user/:identifier",
   authMiddleware,
+  restrictTo("superadmin", "orguser"),
   podUsersController.getOrguserDetails
 );
 
@@ -38,6 +39,7 @@ router.get(
 router.get(
   "/user/id/:user_id",
   authMiddleware,
+  restrictTo("mentor", "orgadmin"),
   podUsersController.getOrguserDetailsByUserId
 );
 // Get unaasigned user
