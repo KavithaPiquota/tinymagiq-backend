@@ -54,6 +54,48 @@ const getRoleIdByName = async (role_name) => {
   return result.rows[0].role_id;
 };
 
+// Helper function to validate password strength
+const validatePassword = (password) => {
+  const minLength = password.length >= 8;
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasLowercase = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecialChar = /[!@#$%^&*?]/.test(password);
+
+  if (!minLength) {
+    return {
+      isValid: false,
+      message: "Password must be at least 8 characters long",
+    };
+  }
+  if (!hasUppercase) {
+    return {
+      isValid: false,
+      message: "Password must contain at least one uppercase letter",
+    };
+  }
+  if (!hasLowercase) {
+    return {
+      isValid: false,
+      message: "Password must contain at least one lowercase letter",
+    };
+  }
+  if (!hasNumber) {
+    return {
+      isValid: false,
+      message: "Password must contain at least one number",
+    };
+  }
+  if (!hasSpecialChar) {
+    return {
+      isValid: false,
+      message:
+        "Password must contain at least one special character (!@#$%^&*?)",
+    };
+  }
+  return { isValid: true };
+};
+
 const addUser = async (req, res) => {
   let {
     role_name,
@@ -81,6 +123,18 @@ const addUser = async (req, res) => {
         error: "Bad request",
         message:
           "Email, first name, last name, and password are required for non-orguser roles",
+      });
+    }
+  }
+
+  // Validate password for non-orguser roles or orguser with custom password
+  if (password && !(role_name === "orguser" && !password)) {
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: passwordValidation.message,
       });
     }
     if (password === "Tiny@Pass123") {
@@ -206,6 +260,14 @@ const addSuperadmin = async (req, res) => {
       message: "Email and password are required for superadmin",
     });
   }
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.isValid) {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: passwordValidation.message,
+    });
+  }
   if (password === "Tiny@Pass123") {
     return res.status(400).json({
       success: false,
@@ -252,6 +314,14 @@ const addMentor = async (req, res) => {
       success: false,
       error: "Bad request",
       message: "Email and password are required for mentor",
+    });
+  }
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.isValid) {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: passwordValidation.message,
     });
   }
   if (password === "Tiny@Pass123") {
@@ -304,6 +374,14 @@ const addOrgadmin = async (req, res) => {
         "Organization name, email, and password are required for orgadmin",
     });
   }
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.isValid) {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: passwordValidation.message,
+    });
+  }
   if (password === "Tiny@Pass123") {
     return res.status(400).json({
       success: false,
@@ -353,13 +431,23 @@ const addOrguser = async (req, res) => {
         "Organization name, first name, and last name are required for orguser",
     });
   }
-  if (password && password === "Tiny@Pass123") {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message:
-        "The password 'Tiny@Pass123' is not allowed as a custom password for orguser",
-    });
+  if (password) {
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: passwordValidation.message,
+      });
+    }
+    if (password === "Tiny@Pass123") {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message:
+          "The password 'Tiny@Pass123' is not allowed as a custom password for orguser",
+      });
+    }
   }
   try {
     const roleResult = await pool.query(
@@ -414,12 +502,22 @@ const updateUser = async (req, res) => {
       message: "At least one field to update is required",
     });
   }
-  if (password && password === "Tiny@Pass123") {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: "The password 'Tiny@Pass123' is not allowed",
-    });
+  if (password) {
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: passwordValidation.message,
+      });
+    }
+    if (password === "Tiny@Pass123") {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "The password 'Tiny@Pass123' is not allowed",
+      });
+    }
   }
 
   try {
@@ -564,11 +662,19 @@ const changePassword = async (req, res) => {
     });
   }
 
+  const passwordValidation = validatePassword(newPassword);
+  if (!passwordValidation.isValid) {
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: passwordValidation.message,
+    });
+  }
   if (newPassword === "Tiny@Pass123") {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: 'The password "Tiny@Pass123" is not allowed',
+      message: "The password 'Tiny@Pass123' is not allowed",
     });
   }
 
@@ -594,21 +700,6 @@ const changePassword = async (req, res) => {
         success: false,
         error: "Unauthorized",
         message: "Current password is incorrect",
-      });
-    }
-
-    // Enforce password complexity
-    if (
-      newPassword.length < 8 ||
-      !/[A-Z]/.test(newPassword) ||
-      !/[0-9]/.test(newPassword) ||
-      !/[!@#$%^&*]/.test(newPassword)
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message:
-          "New password must be at least 8 characters long and include uppercase, number, and special character",
       });
     }
 
