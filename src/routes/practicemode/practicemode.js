@@ -50,9 +50,18 @@ router.get(
 );
 
 // Get specific practicemode by ID
-router.get("/:practicemode_id", practicemodeController.getpracticemodeById);
+router.get(
+  "/:practicemode_id",
+  authMiddleware,
+  practicemodeController.getpracticemodeById
+);
 
 // Delete practicemode
-router.delete("/:practicemode_id", practicemodeController.deletepracticemode);
+router.delete(
+  "/:practicemode_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  practicemodeController.deletepracticemode
+);
 
 module.exports = router;
