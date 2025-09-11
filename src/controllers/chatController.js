@@ -7,7 +7,6 @@ class ChatController {
 
     try {
       const {
-        user_id,
         conversation,
         status,
         current_stage,
@@ -15,6 +14,9 @@ class ChatController {
         // Scoring fields (only saved when status is 'completed')
         scoring_data, // Expected to contain the parsed scoring object from frontend
       } = req.body;
+
+      // NEW: Force user_id from authenticated user (prevent creating for others)
+      const user_id = req.user.user_id;
 
       if (!user_id || !conversation) {
         return res.status(400).json({
@@ -300,6 +302,19 @@ class ChatController {
       const { user_id } = req.params;
       const { concept_name } = req.query;
 
+      // NEW: Ownership check - orguser can only access own, others can access any
+      const requestedUserId = parseInt(user_id);
+      if (
+        requestedUserId !== parseInt(req.user.user_id) &&
+        !["mentor", "orgadmin"].includes(req.user.role)
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You do not have permission to access this resource",
+        });
+      }
+
       if (!user_id) {
         return res.status(400).json({
           success: false,
@@ -499,6 +514,19 @@ class ChatController {
         }
 
         const existingChat = checkResult.rows[0];
+
+        // NEW: Ownership check - orguser can only update own chats, others can update any
+        if (
+          parseInt(existingChat.user_id) !== parseInt(req.user.user_id) &&
+          !["mentor", "orgadmin"].includes(req.user.role)
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            success: false,
+            error: "Forbidden",
+            message: "You do not have permission to update this chat",
+          });
+        }
 
         // If stage not provided, keep current stage
         if (finalStage === null) {
@@ -752,6 +780,19 @@ class ChatController {
     try {
       const { user_id } = req.params;
 
+      // NEW: Ownership check - orguser can only access own counts, others can access any
+      const requestedUserId = parseInt(user_id);
+      if (
+        requestedUserId !== parseInt(req.user.user_id) &&
+        !["mentor", "orgadmin"].includes(req.user.role)
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You do not have permission to access this resource",
+        });
+      }
+
       if (!user_id) {
         return res.status(400).json({
           success: false,
@@ -818,6 +859,19 @@ class ChatController {
         stage,
         concept,
       } = req.query;
+
+      // NEW: Ownership check - orguser can only access own history, others can access any
+      const requestedUserId = parseInt(user_id);
+      if (
+        requestedUserId !== parseInt(req.user.user_id) &&
+        !["mentor", "orgadmin"].includes(req.user.role)
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You do not have permission to access this resource",
+        });
+      }
 
       if (!user_id) {
         return res.status(400).json({
@@ -1147,6 +1201,18 @@ class ChatController {
 
       const chat = result.rows[0];
 
+      // NEW: Ownership check - orguser can only get own chats, others can get any
+      if (
+        parseInt(chat.user_id) !== parseInt(req.user.user_id) &&
+        !["mentor", "orgadmin"].includes(req.user.role)
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You do not have permission to access this chat",
+        });
+      }
+
       // Parse conversation JSON
       if (typeof chat.conversation === "string") {
         try {
@@ -1226,18 +1292,39 @@ class ChatController {
       try {
         await client.query("BEGIN");
 
-        const result = await client.query(
-          "DELETE FROM chat WHERE id = $1 RETURNING id, user_id, status, current_stage, concept_name",
+        // NEW: Fetch chat to check ownership before delete
+        const checkResult = await client.query(
+          "SELECT user_id FROM chat WHERE id = $1",
           [parseInt(chat_id)]
         );
 
-        if (result.rows.length === 0) {
+        if (checkResult.rows.length === 0) {
           await client.query("ROLLBACK");
           return res.status(404).json({
             success: false,
             error: "Chat not found",
           });
         }
+
+        const chatUserId = checkResult.rows[0].user_id;
+
+        // NEW: Ownership check - orguser can only delete own, others can delete any
+        if (
+          parseInt(chatUserId) !== parseInt(req.user.user_id) &&
+          !["mentor", "orgadmin"].includes(req.user.role)
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            success: false,
+            error: "Forbidden",
+            message: "You do not have permission to delete this chat",
+          });
+        }
+
+        const result = await client.query(
+          "DELETE FROM chat WHERE id = $1 RETURNING id, user_id, status, current_stage, concept_name",
+          [parseInt(chat_id)]
+        );
 
         await client.query("COMMIT");
 
