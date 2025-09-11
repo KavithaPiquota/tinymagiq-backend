@@ -142,6 +142,22 @@ class ChatController {
       try {
         await client.query("BEGIN");
 
+        // Validate concept_name existence if provided
+        if (finalConceptName) {
+          const conceptCheck = await client.query(
+            "SELECT 1 FROM concepts WHERE concept_name = $1 LIMIT 1",
+            [finalConceptName]
+          );
+          if (conceptCheck.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              success: false,
+              error: "Invalid concept name",
+              details: "The provided concept name is Invalid or does not exist",
+            });
+          }
+        }
+
         let insertQuery, insertParams;
 
         if (
@@ -150,13 +166,13 @@ class ChatController {
         ) {
           // Insert with scoring data
           insertQuery = `INSERT INTO chat (
-                        user_id, conversation, status, current_stage, concept_name,
-                        explanation_score, interpretation_score, application_score, perspective_score, 
-                        empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
-                        summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
-                        abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
-                    RETURNING id, created_at, updated_at`;
+                      user_id, conversation, status, current_stage, concept_name,
+                      explanation_score, interpretation_score, application_score, perspective_score, 
+                      empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
+                      summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
+                      abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
+                  RETURNING id, created_at, updated_at`;
 
           insertParams = [
             user_id,
@@ -183,8 +199,8 @@ class ChatController {
         } else {
           // Insert without scoring data
           insertQuery = `INSERT INTO chat (user_id, conversation, status, current_stage, concept_name) 
-                                   VALUES ($1, $2, $3, $4, $5) 
-                                   RETURNING id, created_at, updated_at`;
+                                 VALUES ($1, $2, $3, $4, $5) 
+                                 RETURNING id, created_at, updated_at`;
           insertParams = [
             user_id,
             JSON.stringify(conversation),
@@ -494,6 +510,22 @@ class ChatController {
           finalConceptName = existingChat.concept_name;
         }
 
+        // Validate concept_name existence if it's being set/changed
+        if (finalConceptName) {
+          const conceptCheck = await client.query(
+            "SELECT 1 FROM concepts WHERE concept_name = $1 LIMIT 1",
+            [finalConceptName]
+          );
+          if (conceptCheck.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              success: false,
+              error: "Invalid concept name",
+              details: "The provided concept name is invalid or does not exist",
+            });
+          }
+        }
+
         // Business logic for status-stage relationship
         if (finalStatus === "not_started") {
           finalStage = 0;
@@ -574,21 +606,21 @@ class ChatController {
         ) {
           // Update with scoring data
           updateQuery = `UPDATE chat 
-                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4,
-                                       explanation_score = $5, interpretation_score = $6, application_score = $7, 
-                                       perspective_score = $8, empathy_score = $9, self_knowledge_score = $10,
-                                       asking_questions_score = $11, clarifying_ambiguity_score = $12, 
-                                       summarizing_confirming_score = $13, challenging_ideas_score = $14, 
-                                       comparing_concepts_score = $15, abstract_concrete_score = $16,
-                                       six_facets_average = $17, understanding_skills_average = $18, 
-                                       final_weighted_score = $19, updated_at = CURRENT_TIMESTAMP 
-                                   WHERE id = $20 
-                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, 
-                                            explanation_score, interpretation_score, application_score, perspective_score, 
-                                            empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
-                                            summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
-                                            abstract_concrete_score, six_facets_average, understanding_skills_average, 
-                                            final_weighted_score, updated_at`;
+                                 SET conversation = $1, status = $2, current_stage = $3, concept_name = $4,
+                                     explanation_score = $5, interpretation_score = $6, application_score = $7, 
+                                     perspective_score = $8, empathy_score = $9, self_knowledge_score = $10,
+                                     asking_questions_score = $11, clarifying_ambiguity_score = $12, 
+                                     summarizing_confirming_score = $13, challenging_ideas_score = $14, 
+                                     comparing_concepts_score = $15, abstract_concrete_score = $16,
+                                     six_facets_average = $17, understanding_skills_average = $18, 
+                                     final_weighted_score = $19, updated_at = CURRENT_TIMESTAMP 
+                                 WHERE id = $20 
+                                 RETURNING id, user_id, conversation, status, current_stage, concept_name, 
+                                          explanation_score, interpretation_score, application_score, perspective_score, 
+                                          empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
+                                          summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
+                                          abstract_concrete_score, six_facets_average, understanding_skills_average, 
+                                          final_weighted_score, updated_at`;
 
           updateParams = [
             JSON.stringify(conversation),
@@ -615,9 +647,9 @@ class ChatController {
         } else {
           // Update without scoring data
           updateQuery = `UPDATE chat 
-                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, updated_at = CURRENT_TIMESTAMP 
-                                   WHERE id = $5 
-                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, updated_at`;
+                                 SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, updated_at = CURRENT_TIMESTAMP 
+                                 WHERE id = $5 
+                                 RETURNING id, user_id, conversation, status, current_stage, concept_name, updated_at`;
           updateParams = [
             JSON.stringify(conversation),
             finalStatus,
