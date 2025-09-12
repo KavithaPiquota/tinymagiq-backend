@@ -53,6 +53,7 @@ router.get(
 router.get(
   "/:practicemode_id",
   authMiddleware,
+    restrictTo("superadmin"),
   practicemodeController.getpracticemodeById
 );
 

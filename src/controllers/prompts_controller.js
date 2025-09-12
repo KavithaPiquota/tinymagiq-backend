@@ -65,10 +65,20 @@ const isValidJsonString = (str) => {
 };
 
 // Utility to process template with selected concept data
-const processTemplate = (templateContent, selectedConcept) => {
+const processTemplate = (templateContent, selectedConcept, sessionHistory = []) => {
   if (!templateContent || !selectedConcept) {
     return templateContent;
   }
+  
+   const filteredHistory = sessionHistory.filter(
+    (entry) => entry.concept_name === selectedConcept.concept_name
+  );
+
+  const conversationHistory = filteredHistory
+    .map((entry) => `Mentee: ${entry.Mentee}\nMentor: ${entry.Mentor}`)
+    .join("\n");
+     
+  console.log("Processing template with conversation history length:", conversationHistory.length);
 
   let processedContent = templateContent;
 
@@ -92,6 +102,25 @@ const processTemplate = (templateContent, selectedConcept) => {
       selectedConcept.understanding_skills_rubric || "",
     "{{LEARNING_ASSESSMENT_DIMENSIONS}}":
       selectedConcept.learning_assessment_dimensions || "",
+    "{{LEARNING_OBJECTIVE}}": selectedConcept.learning_objective || "",
+    "{{LEVEL_1_NAME}}": selectedConcept.level_1_name || "",
+    "{{LEVEL_1_DESCRIPTION}}": selectedConcept.level_1_description || "",
+    "{{LEVEL_2_NAME}}": selectedConcept.level_2_name || "",
+    "{{LEVEL_2_DESCRIPTION}}": selectedConcept.level_2_description || "",
+    "{{LEVEL_3_NAME}}": selectedConcept.level_3_name || "",
+    "{{LEVEL_3_DESCRIPTION}}": selectedConcept.level_3_description || "",
+    "{{LEVEL_4_NAME}}": selectedConcept.level_4_name || "",
+    "{{LEVEL_4_DESCRIPTION}}": selectedConcept.level_4_description || "",
+    "{{LEVEL_5_NAME}}": selectedConcept.level_5_name || "",
+    "{{LEVEL_5_DESCRIPTION}}": selectedConcept.level_5_description || "",
+    "{{NUMBER_OF_SCENARIOS}}": selectedConcept.number_of_scenarios || "",
+    "{{FACET_FOCUS}}": selectedConcept.facet_focus || "",
+    "{{INTRODUCTION_CONTEXT}}": selectedConcept.introduction_context || "",
+    "{{PROGRESSION_DESCRIPTION}}": selectedConcept.progression_description || "",
+    "{{TASK_QUESTIONS}}": selectedConcept.task_questions || "",
+    "{{REFLECTION_QUESTIONS}}": selectedConcept.reflection_questions || "",
+    "{{STRENGTH_CHECKLIST}}": selectedConcept.strength_checklist || "",
+    "{{CONVERSATION_HISTORY_PLACEHOLDER}}": conversationHistory || "",
   };
 
   Object.entries(replacements).forEach(([placeholder, value]) => {

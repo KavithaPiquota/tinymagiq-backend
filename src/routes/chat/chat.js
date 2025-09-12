@@ -50,9 +50,9 @@ router.get(
 );
 
 // Get specific chat by ID
-router.get("/:chat_id", chatController.getChatById);
+router.get("/:chat_id", authMiddleware, restrictTo("superadmin"), chatController.getChatById);
 
 // Delete chat
-router.delete("/:chat_id", chatController.deleteChat);
+router.delete("/:chat_id", authMiddleware, restrictTo("superadmin"), chatController.deleteChat);
 
 module.exports = router;

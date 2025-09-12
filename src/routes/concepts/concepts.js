@@ -21,10 +21,10 @@ router.put(
 );
 
 // Get all concepts
-router.get("/", authMiddleware, conceptsController.getAllConcepts);
+router.get("/", authMiddleware, restrictTo("superadmin"), conceptsController.getAllConcepts);
 
 // Get active concepts
-router.get("/active", authMiddleware, conceptsController.getActiveConcepts);
+router.get("/active", authMiddleware, restrictTo("superadmin"), conceptsController.getActiveConcepts);
 
 // Get archived concepts
 router.get(
@@ -34,6 +34,7 @@ router.get(
     next();
   },
   authMiddleware,
+  restrictTo("superadmin"),
   conceptsController.getArchivedConcepts
 );
 
@@ -47,6 +48,7 @@ router.get(
     next();
   },
   authMiddleware,
+  restrictTo("superadmin"),
   conceptsController.getNonArchivedConcepts
 );
 
@@ -54,10 +56,11 @@ router.get(
 router.get(
   "/name/:concept_name",
   authMiddleware,
+  restrictTo("superadmin"),
   conceptsController.getConceptByName
 );
 
 // Get concept by concept_id
-router.get("/:concept_id", authMiddleware, conceptsController.getConceptById);
+router.get("/:concept_id", authMiddleware, restrictTo("superadmin"), conceptsController.getConceptById);
 
 module.exports = router;

@@ -296,7 +296,7 @@ const addUserToPod = async (req, res) => {
     }
 
     const conceptsResult = await client.query(
-      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
         "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
@@ -332,7 +332,7 @@ const addUserToPod = async (req, res) => {
     );
     const pod = podResult.rows[0];
     const batchConcepts = await client.query(
-      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
         "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [batch.batch_id]
     );
@@ -560,7 +560,7 @@ const updatePodUser = async (req, res) => {
       });
     }
     const batchConcepts = await pool.query(
-      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+      "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
         "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
       [podResult.rows[0].batch_id]
     );
@@ -674,7 +674,7 @@ const getOrguserDetails = async (req, res) => {
       if (podResult.rows.length > 0) {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
-          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
             "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
           [pod.batch_id]
         );
@@ -771,7 +771,7 @@ const getOrguserDetailsByEmail = async (req, res) => {
       if (podResult.rows.length > 0) {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
-          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
             "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
           [pod.batch_id]
         );
@@ -867,7 +867,7 @@ const getOrguserDetailsByUserId = async (req, res) => {
       if (podResult.rows.length > 0) {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
-          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
             "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
           [pod.batch_id]
         );
@@ -1002,7 +1002,7 @@ const getAllOrgusersWithAssignmentStatus = async (req, res) => {
 
         if (row.pod_user_id) {
           const batchConcepts = await pool.query(
-            "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
+            "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
               "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
             [row.batch_id]
           );

@@ -21,12 +21,13 @@ router.put(
 );
 
 // Get all batches
-router.get("/", authMiddleware, batchesController.getAllBatches);
+router.get("/", authMiddleware, restrictTo("superadmin"), batchesController.getAllBatches);
 
 // Get batches by organization name
 router.get(
   "/organization/:organization_name",
   authMiddleware,
+  restrictTo("superadmin"),
   batchesController.getBatchesByOrganization
 );
 
@@ -34,10 +35,11 @@ router.get(
 router.get(
   "/name/:batch_name",
   authMiddleware,
+  restrictTo("superadmin"),
   batchesController.getBatchByName
 );
 
 // Get batch by batch_id
-router.get("/:batch_id", authMiddleware, batchesController.getBatchById);
+router.get("/:batch_id", restrictTo("superadmin"), authMiddleware, batchesController.getBatchById);
 
 module.exports = router;

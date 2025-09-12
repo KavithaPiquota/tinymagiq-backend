@@ -17,6 +17,24 @@ const addConcept = async (req, res) => {
     learning_assessment_dimensions,
     download_link,
     is_active = true,
+    learning_objective,
+    level_1_name,
+    level_1_description,
+    level_2_name,
+    level_2_description,
+    level_3_name,
+    level_3_description,
+    level_4_name,
+    level_4_description,
+    level_5_name,
+    level_5_description,
+    number_of_scenarios,
+    facet_focus,
+    introduction_context,
+    progression_description,
+    task_questions,
+    reflection_questions,
+    strength_checklist,
   } = req.body;
 
   if (!concept_name) {
@@ -74,8 +92,26 @@ const addConcept = async (req, res) => {
         download_link,
         is_active,
         version,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 1, CURRENT_TIMESTAMP)
+        updated_at,
+        learning_objective,
+        level_1_name,
+        level_1_description,
+        level_2_name,
+        level_2_description,
+        level_3_name,
+        level_3_description,
+        level_4_name,
+        level_4_description,
+        level_5_name,
+        level_5_description,
+        number_of_scenarios,
+        facet_focus,
+        introduction_context,
+        progression_description,
+        task_questions,
+        reflection_questions,
+        strength_checklist
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 1, CURRENT_TIMESTAMP, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
       RETURNING *`,
       [
         trimmedConceptName,
@@ -93,6 +129,24 @@ const addConcept = async (req, res) => {
         learning_assessment_dimensions,
         download_link,
         is_active,
+        learning_objective,
+level_1_name,
+level_1_description,
+level_2_name,
+level_2_description,
+level_3_name,
+level_3_description,
+level_4_name,
+level_4_description,
+level_5_name,
+level_5_description,
+number_of_scenarios,
+facet_focus,
+introduction_context,
+progression_description,
+task_questions,
+reflection_questions,
+strength_checklist,
       ]
     );
 
@@ -137,6 +191,24 @@ const updateConcept = async (req, res) => {
     learning_assessment_dimensions,
     download_link,
     is_active,
+    learning_objective,
+    level_1_name,
+    level_1_description,
+    level_2_name,
+    level_2_description,
+    level_3_name,
+    level_3_description,
+    level_4_name,
+    level_4_description,
+    level_5_name,
+    level_5_description,
+    number_of_scenarios,
+    facet_focus,
+    introduction_context,
+    progression_description,
+    task_questions,
+    reflection_questions,
+    strength_checklist
   } = req.body;
 
   // Check if at least one field is provided
@@ -155,7 +227,25 @@ const updateConcept = async (req, res) => {
     !understanding_skills_rubric &&
     !learning_assessment_dimensions &&
     !download_link &&
-    is_active === undefined
+    is_active === undefined &&
+    !learning_objective &&
+    !level_1_name &&
+    !level_1_description &&
+    !level_2_name &&
+    !level_2_description &&
+    !level_3_name &&
+    !level_3_description &&
+    !level_4_name &&
+    !level_4_description &&
+    !level_5_name &&
+    !level_5_description &&
+    !number_of_scenarios &&
+    !facet_focus &&
+    !introduction_context &&
+    !progression_description &&
+    !task_questions &&
+    !reflection_questions &&
+    !strength_checklist
   ) {
     return res.status(400).json({
       success: false,
@@ -215,51 +305,99 @@ const updateConcept = async (req, res) => {
     }
 
     // Archive existing concept to concepts_archive
-    await pool.query(
-      `INSERT INTO concepts_archive (
-        concept_id,
-        concept_name,
-        concept_content,
-        concept_enduring_understandings,
-        concept_essential_questions,
-        concept_knowledge_skills,
-        stage_1_content,
-        stage_2_content,
-        stage_3_content,
-        stage_4_content,
-        stage_5_content,
-        concept_understanding_rubric,
-        understanding_skills_rubric,
-        learning_assessment_dimensions,
-        download_link,
-        is_active,
-        created_at,
-        updated_at,
-        version,
-        archived_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP)`,
-      [
-        currentConcept.concept_id,
-        currentConcept.concept_name,
-        currentConcept.concept_content,
-        currentConcept.concept_enduring_understandings,
-        currentConcept.concept_essential_questions,
-        currentConcept.concept_knowledge_skills,
-        currentConcept.stage_1_content,
-        currentConcept.stage_2_content,
-        currentConcept.stage_3_content,
-        currentConcept.stage_4_content,
-        currentConcept.stage_5_content,
-        currentConcept.concept_understanding_rubric,
-        currentConcept.understanding_skills_rubric,
-        currentConcept.learning_assessment_dimensions,
-        currentConcept.download_link,
-        currentConcept.is_active,
-        currentConcept.created_at,
-        currentConcept.updated_at,
-        currentConcept.version,
-      ]
-    );
+await pool.query(
+  `INSERT INTO concepts_archive (
+    concept_id,
+    concept_name,
+    concept_content,
+    concept_enduring_understandings,
+    concept_essential_questions,
+    concept_knowledge_skills,
+    stage_1_content,
+    stage_2_content,
+    stage_3_content,
+    stage_4_content,
+    stage_5_content,
+    concept_understanding_rubric,
+    understanding_skills_rubric,
+    learning_assessment_dimensions,
+    download_link,
+    is_active,
+    created_at,
+    updated_at,
+    version,
+    archived_at,
+    learning_objective,
+    level_1_name,
+    level_1_description,
+    level_2_name,
+    level_2_description,
+    level_3_name,
+    level_3_description,
+    level_4_name,
+    level_4_description,
+    level_5_name,
+    level_5_description,
+    number_of_scenarios,
+    facet_focus,
+    introduction_context,
+    progression_description,
+    task_questions,
+    reflection_questions,
+    strength_checklist
+    
+  ) VALUES (
+    $1, $2, $3, $4, $5,
+    $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15,
+    $16, $17, $18, $19,CURRENT_TIMESTAMP,
+    $20, $21, $22, $23, $24,
+    $25, $26, $27, $28, $29,
+    $30, $31, $32, $33, $34,
+    $35, $36, $37
+    
+  )`,
+  [
+    currentConcept.concept_id,
+    currentConcept.concept_name,
+    currentConcept.concept_content,
+    currentConcept.concept_enduring_understandings,
+    currentConcept.concept_essential_questions,
+    currentConcept.concept_knowledge_skills,
+    currentConcept.stage_1_content,
+    currentConcept.stage_2_content,
+    currentConcept.stage_3_content,
+    currentConcept.stage_4_content,
+    currentConcept.stage_5_content,
+    currentConcept.concept_understanding_rubric,
+    currentConcept.understanding_skills_rubric,
+    currentConcept.learning_assessment_dimensions,
+    currentConcept.download_link,
+    currentConcept.is_active,
+    currentConcept.created_at,
+    currentConcept.updated_at,
+    currentConcept.version, // ✅ now in correct place
+    currentConcept.learning_objective,
+    currentConcept.level_1_name,
+    currentConcept.level_1_description,
+    currentConcept.level_2_name,
+    currentConcept.level_2_description,
+    currentConcept.level_3_name,
+    currentConcept.level_3_description,
+    currentConcept.level_4_name,
+    currentConcept.level_4_description,
+    currentConcept.level_5_name,
+    currentConcept.level_5_description,
+    currentConcept.number_of_scenarios,
+    currentConcept.facet_focus,
+    currentConcept.introduction_context,
+    currentConcept.progression_description,
+    currentConcept.task_questions,
+    currentConcept.reflection_questions,
+    currentConcept.strength_checklist
+  ]
+);
+
 
     // Update existing concept with new data
     const fields = [];
@@ -321,6 +459,78 @@ const updateConcept = async (req, res) => {
     if (download_link !== undefined) {
       fields.push(`download_link = $${index++}`);
       values.push(download_link);
+    }
+    if (learning_objective !== undefined) {
+      fields.push(`learning_objective = $${index++}`);
+      values.push(learning_objective);
+    }
+    if (level_1_name !== undefined) {
+      fields.push(`level_1_name = $${index++}`);
+      values.push(level_1_name);
+    }
+    if (level_1_description !== undefined) {
+      fields.push(`level_1_description = $${index++}`);
+      values.push(level_1_description);
+    }
+    if (level_2_name !== undefined) {
+      fields.push(`level_2_name = $${index++}`);
+      values.push(level_2_name);
+    }
+    if (level_2_description !== undefined) {
+      fields.push(`level_2_description = $${index++}`);
+      values.push(level_2_description);
+    }
+    if (level_3_name !== undefined) {
+      fields.push(`level_3_name = $${index++}`);
+      values.push(level_3_name);
+    }
+    if (level_3_description !== undefined) {
+      fields.push(`level_3_description = $${index++}`);
+      values.push(level_3_description);
+    }
+    if (level_4_name !== undefined) {
+      fields.push(`level_4_name = $${index++}`);
+      values.push(level_4_name);
+    }
+    if (level_4_description !== undefined) {
+      fields.push(`level_4_description = $${index++}`);
+      values.push(level_4_description);
+    }
+    if (level_5_name !== undefined) {
+      fields.push(`level_5_name = $${index++}`);
+      values.push(level_5_name);
+    }
+    if (level_5_description !== undefined) {
+      fields.push(`level_5_description = $${index++}`);
+      values.push(level_5_description);
+    }
+    if (number_of_scenarios !== undefined) {
+      fields.push(`number_of_scenarios = $${index++}`);
+      values.push(number_of_scenarios);
+    }
+    if (facet_focus !== undefined) {
+      fields.push(`facet_focus = $${index++}`);
+      values.push(facet_focus);
+    }
+    if (introduction_context !== undefined) {
+      fields.push(`introduction_context = $${index++}`);
+      values.push(introduction_context);
+    }
+    if (progression_description !== undefined) {
+      fields.push(`progression_description = $${index++}`);
+      values.push(progression_description);
+    }
+    if (task_questions !== undefined) {
+      fields.push(`task_questions = $${index++}`);
+      values.push(task_questions);
+    }
+    if (reflection_questions !== undefined) {
+      fields.push(`reflection_questions = $${index++}`);
+      values.push(reflection_questions);
+    }
+    if (strength_checklist !== undefined) {
+      fields.push(`strength_checklist = $${index++}`);
+      values.push(strength_checklist);
     }
     if (is_active !== undefined) {
       fields.push(`is_active = $${index++}`);

@@ -21,12 +21,13 @@ router.put(
 );
 
 // Get all pods
-router.get("/", authMiddleware, podsController.getAllPods);
+router.get("/", authMiddleware, restrictTo("superadmin"), podsController.getAllPods);
 
 // Get pods by organization name
 router.get(
   "/organization/:organization_name",
   authMiddleware,
+  restrictTo("superadmin"),
   podsController.getPodsByOrganization
 );
 
@@ -47,7 +48,7 @@ router.get(
 );
 
 // Get pod by pod name
-router.get("/name/:pod_name", authMiddleware, podsController.getPodByName);
+router.get("/name/:pod_name", authMiddleware, restrictTo("superadmin"), podsController.getPodByName);
 
 // Get pod by pod_id
 router.get(

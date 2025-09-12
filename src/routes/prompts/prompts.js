@@ -16,7 +16,7 @@ router.put(
   restrictTo("superadmin"),
   promptsController.updatePrompt
 );
-router.get("/", authMiddleware, promptsController.getPrompts);
+router.get("/", authMiddleware, restrictTo("superadmin"), promptsController.getPrompts);
 router.get(
   "/all",
   (req, res, next) => {
@@ -24,15 +24,17 @@ router.get(
     next();
   },
   authMiddleware,
+  restrictTo("superadmin"),
   promptsController.getPrompts
 );
-router.get("/global", authMiddleware, promptsController.getGlobalPrompts);
-router.get("/batch", authMiddleware, promptsController.getBatchPrompts);
-router.get("/archived", authMiddleware, promptsController.getArchivedPrompts);
-router.post("/batch", authMiddleware, promptsController.addBatchPrompt);
+router.get("/global", authMiddleware, restrictTo("superadmin"), promptsController.getGlobalPrompts);
+router.get("/batch", authMiddleware, restrictTo("superadmin"), promptsController.getBatchPrompts);
+router.get("/archived", authMiddleware, restrictTo("superadmin"), promptsController.getArchivedPrompts);
+router.post("/batch", authMiddleware, restrictTo("superadmin"), promptsController.addBatchPrompt);
 router.get(
   "/fallback",
   authMiddleware,
+  restrictTo("superadmin", "mentor", "orgadmin", "orguser"),
   promptsController.getPromptsWithFallback
 );
 

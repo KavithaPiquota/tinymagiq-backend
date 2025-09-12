@@ -32,6 +32,7 @@ router.get(
 router.get(
   "/user/email/:email",
   authMiddleware,
+  restrictTo("superadmin"),
   podUsersController.getOrguserDetailsByEmail
 );
 
@@ -46,12 +47,14 @@ router.get(
 router.get(
   "/unassigned/:organization_identifier",
   authMiddleware,
+  restrictTo("superadmin"),
   podUsersController.getUnassignedOrgusers
 );
 // Get aasigned user
 router.get(
   "/all/:organization_identifier",
   authMiddleware,
+  restrictTo("superadmin"),
   podUsersController.getAllOrgusersWithAssignmentStatus
 );
 
