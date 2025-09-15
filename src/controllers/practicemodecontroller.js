@@ -14,7 +14,18 @@ class practicemodeController {
                 current_stage, 
                 concept_name,
                 // Scoring fields (only saved when status is 'completed')
-                scoring_data // Expected to contain the parsed scoring object from frontend
+                scoring_data, // Expected to contain the parsed scoring object from frontend
+                overall_performance,
+    facet_ratings_explanation,
+    facet_ratings_interpretation,
+    facet_ratings_application,
+    facet_ratings_perspective,
+    facet_ratings_empathy,
+    facet_ratings_self_knowledge,
+    key_patterns,
+    recommended_focus_areas,
+    personalized_next_steps,
+    session_summary
             } = req.body;
 
             if (!user_id || !conversation) {
@@ -131,38 +142,50 @@ class practicemodeController {
                         explanation_score, interpretation_score, application_score, perspective_score, 
                         empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                         summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
-                        abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
+                        abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) 
                     RETURNING id, created_at, updated_at`;
                     
-                    insertParams = [
-                        user_id, 
-                        JSON.stringify(conversation), 
-                        finalStatus, 
-                        finalStage, 
-                        finalConceptName,
-                        scoringFields.explanation_score,
-                        scoringFields.interpretation_score,
-                        scoringFields.application_score,
-                        scoringFields.perspective_score,
-                        scoringFields.empathy_score,
-                        scoringFields.self_knowledge_score,
-                        scoringFields.asking_questions_score,
-                        scoringFields.clarifying_ambiguity_score,
-                        scoringFields.summarizing_confirming_score,
-                        scoringFields.challenging_ideas_score,
-                        scoringFields.comparing_concepts_score,
-                        scoringFields.abstract_concrete_score,
-                        scoringFields.six_facets_average,
-                        scoringFields.understanding_skills_average,
-                        scoringFields.final_weighted_score
-                    ];
+                   insertParams = [
+    user_id, 
+    JSON.stringify(conversation), 
+    finalStatus, 
+    finalStage, 
+    finalConceptName,
+    scoringFields.explanation_score,
+    scoringFields.interpretation_score,
+    scoringFields.application_score,
+    scoringFields.perspective_score,
+    scoringFields.empathy_score,
+    scoringFields.self_knowledge_score,
+    scoringFields.asking_questions_score,
+    scoringFields.clarifying_ambiguity_score,
+    scoringFields.summarizing_confirming_score,
+    scoringFields.challenging_ideas_score,
+    scoringFields.comparing_concepts_score,
+    scoringFields.abstract_concrete_score,
+    scoringFields.six_facets_average,
+    scoringFields.understanding_skills_average,
+    scoringFields.final_weighted_score,
+    overall_performance,
+    facet_ratings_explanation,
+    facet_ratings_interpretation,
+    facet_ratings_application,
+    facet_ratings_perspective,
+    facet_ratings_empathy,
+    facet_ratings_self_knowledge,
+    key_patterns,
+    recommended_focus_areas,
+    personalized_next_steps,
+    session_summary
+];
+
                 } else {
                     // Insert without scoring data
-                    insertQuery = `INSERT INTO practicemode (user_id, conversation, status, current_stage, concept_name) 
-                                   VALUES ($1, $2, $3, $4, $5) 
+                    insertQuery = `INSERT INTO practicemode (user_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary) 
+                                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) 
                                    RETURNING id, created_at, updated_at`;
-                    insertParams = [user_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName];
+                    insertParams = [user_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary];
                 }
 
                 const insertResult = await client.query(insertQuery, insertParams);
@@ -182,7 +205,18 @@ class practicemodeController {
                     stage_display_name: `Stage ${finalStage}`,
                     created_at: newpracticemode.created_at,
                     updated_at: newpracticemode.updated_at,
-                    shouldStartFresh: false
+                    shouldStartFresh: false,
+                    overall_performance: overall_performance,
+                    facet_ratings_explanation: facet_ratings_explanation,
+                    facet_ratings_interpretation: facet_ratings_interpretation,
+                    facet_ratings_application: facet_ratings_application,
+                    facet_ratings_perspective: facet_ratings_perspective,
+                    facet_ratings_empathy: facet_ratings_empathy,
+                    facet_ratings_self_knowledge: facet_ratings_self_knowledge,
+                    key_patterns: key_patterns,
+                    recommended_focus_areas: recommended_focus_areas,
+                    personalized_next_steps: personalized_next_steps,
+                    session_summary: session_summary
                 };
 
                 // Include scoring data in response if it was saved
@@ -263,14 +297,14 @@ class practicemodeController {
             let query, params;
 
             if (concept_name) {
-                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
                         FROM practicemode 
                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND concept_name ILIKE $2
                         ORDER BY updated_at DESC 
                         LIMIT 1`;
                 params = [user_id, `%${concept_name}%`];
             } else {
-                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
                         FROM practicemode 
                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
                         ORDER BY updated_at DESC 
@@ -375,7 +409,18 @@ class practicemodeController {
                 current_stage, 
                 concept_name,
                 // Scoring fields (only saved when status is 'completed')
-                scoring_data // Expected to contain the parsed scoring object from frontend
+                scoring_data, // Expected to contain the parsed scoring object from frontend
+                overall_performance,
+    facet_ratings_explanation,
+    facet_ratings_interpretation,
+    facet_ratings_application,
+    facet_ratings_perspective,
+    facet_ratings_empathy,
+    facet_ratings_self_knowledge,
+    key_patterns,
+    recommended_focus_areas,
+    personalized_next_steps,
+    session_summary
             } = req.body;
 
             if (!practicemode_id || !conversation) {
@@ -507,14 +552,22 @@ class practicemodeController {
                                        summarizing_confirming_score = $13, challenging_ideas_score = $14, 
                                        comparing_concepts_score = $15, abstract_concrete_score = $16,
                                        six_facets_average = $17, understanding_skills_average = $18, 
-                                       final_weighted_score = $19, updated_at = CURRENT_TIMESTAMP 
-                                   WHERE id = $20 
+                                       final_weighted_score = $19, overall_performance = $20, facet_ratings_explanation = $21, 
+                                       facet_ratings_interpretation = $22, facet_ratings_application = $23, 
+                                       facet_ratings_perspective = $24, facet_ratings_empathy = $25, 
+                                       facet_ratings_self_knowledge = $26, key_patterns = $27, 
+                                       recommended_focus_areas = $28, personalized_next_steps = $29, 
+                                       session_summary = $30, updated_at = CURRENT_TIMESTAMP 
+                                   WHERE id = $31 
                                    RETURNING id, user_id, conversation, status, current_stage, concept_name, 
                                             explanation_score, interpretation_score, application_score, perspective_score, 
                                             empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                                             summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
                                             abstract_concrete_score, six_facets_average, understanding_skills_average, 
-                                            final_weighted_score, updated_at`;
+                                            final_weighted_score, overall_performance, facet_ratings_explanation, 
+                                            facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, 
+                                            facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, 
+                                            recommended_focus_areas, personalized_next_steps, session_summary, updated_at`;
                     
                     updateParams = [
                         JSON.stringify(conversation), 
@@ -536,15 +589,26 @@ class practicemodeController {
                         scoringFields.six_facets_average,
                         scoringFields.understanding_skills_average,
                         scoringFields.final_weighted_score,
+                        overall_performance,
+                        facet_ratings_explanation,
+                        facet_ratings_interpretation,
+                        facet_ratings_application,
+                        facet_ratings_perspective,
+                        facet_ratings_empathy,
+                        facet_ratings_self_knowledge,
+                        key_patterns,
+                        recommended_focus_areas,
+                        personalized_next_steps,
+                        session_summary,
                         parseInt(practicemode_id)
                     ];
                 } else {
                     // Update without scoring data
                     updateQuery = `UPDATE practicemode 
-                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, updated_at = CURRENT_TIMESTAMP 
-                                   WHERE id = $5 
-                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, updated_at`;
-                    updateParams = [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, parseInt(practicemode_id)];
+                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, overall_performance = $5, facet_ratings_explanation = $6, facet_ratings_interpretation = $7, facet_ratings_application = $8, facet_ratings_perspective = $9, facet_ratings_empathy = $10, facet_ratings_self_knowledge = $11, key_patterns = $12, recommended_focus_areas = $13, personalized_next_steps = $14, session_summary = $15, updated_at = CURRENT_TIMESTAMP 
+                                   WHERE id = $16 
+                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at`;
+                    updateParams = [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, parseInt(practicemode_id)];
                 }
 
                 const updateResult = await client.query(updateQuery, updateParams);
@@ -708,7 +772,9 @@ class practicemodeController {
                                 c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
                                 c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
                                 c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
-                                c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
+                                c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,c.overall_performance, c.facet_ratings_explanation, c.facet_ratings_interpretation, c.facet_ratings_application, 
+                                c.facet_ratings_perspective, c.facet_ratings_empathy, c.facet_ratings_self_knowledge, 
+                                c.key_patterns, c.recommended_focus_areas, c.personalized_next_steps, c.session_summary,
                                 u.username, u.first_name, u.last_name, u.email`;
 
             // Base FROM clause with JOIN using type conversion for user_id
@@ -950,7 +1016,9 @@ class practicemodeController {
                         explanation_score, interpretation_score, application_score, perspective_score, 
                         empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                         summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
-                        abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score 
+                        abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, 
+                        facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, 
+                        key_patterns, recommended_focus_areas, personalized_next_steps, session_summary
                  FROM practicemode WHERE id = $1`,
                 [parseInt(practicemode_id)]
             );
