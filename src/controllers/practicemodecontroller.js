@@ -939,7 +939,18 @@ class practicemodeController {
                     created_at: practicemode.created_at,
                     updated_at: practicemode.updated_at,
                     stage_display_name: `Stage ${practicemode.current_stage}`,
-                    user_details
+                    user_details,
+                    overall_performance: practicemode.overall_performance,
+                    facet_ratings_explanation: practicemode.facet_ratings_explanation,
+                    facet_ratings_interpretation: practicemode.facet_ratings_interpretation,
+                    facet_ratings_application: practicemode.facet_ratings_application,
+                    facet_ratings_perspective: practicemode.facet_ratings_perspective,
+                    facet_ratings_empathy: practicemode.facet_ratings_empathy,
+                    facet_ratings_self_knowledge: practicemode.facet_ratings_self_knowledge,
+                    key_patterns: practicemode.key_patterns,
+                    recommended_focus_areas: practicemode.recommended_focus_areas,
+                    personalized_next_steps: practicemode.personalized_next_steps,
+                    session_summary: practicemode.session_summary
                 };
 
                 // Include scoring data if present (for completed practicemodes)
