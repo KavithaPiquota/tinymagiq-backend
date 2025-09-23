@@ -2,6 +2,10 @@ const { pool } = require("../config/database");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+const sgMail = require("@sendgrid/mail");
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+
 
 const checkUsernameExists = async (username) => {
   const result = await pool.query("SELECT 1 FROM users WHERE username = $1", [
@@ -1126,6 +1130,111 @@ const getUsersByOrganization = async (req, res) => {
     });
   }
 };
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ success: false, message: "Email is required" });
+  }
+
+  try {
+    const result = await pool.query("SELECT user_id FROM users WHERE email = $1", [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 5 * 60 * 1000); // OTP valid for 5 minutes
+
+    await pool.query(
+      "UPDATE users SET reset_otp = $1, reset_otp_expiry = $2 WHERE email = $3",
+      [otp, expiry, email]
+    );
+
+    const msg = {
+      to: email,
+      from: process.env.SENDGRID_FROM, // must be verified in SendGrid
+      subject: "Password Reset OTP",
+      text: `Your OTP is ${otp}. It will expire in 5 minutes.`,
+      html: `<p>Your OTP is <strong>${otp}</strong>. It will expire in 5 minutes.</p>`,
+    };
+
+    await sgMail.send(msg);
+
+    res.json({ success: true, message: "OTP sent to your email" });
+  } catch (err) {
+    console.error("Error in forgotPassword:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+const verifyOtp = async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ success: false, message: "Email and OTP are required" });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT reset_otp, reset_otp_expiry FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const user = result.rows[0];
+    if (user.reset_otp !== otp || new Date(user.reset_otp_expiry) < new Date()) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    res.json({ success: true, message: "OTP verified successfully" });
+  } catch (err) {
+    console.error("Error in verifyOtp:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+const resetPassword = async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ success: false, message: "Email, OTP and new password are required" });
+  }
+
+  const passwordValidation = validatePassword(newPassword);
+  if (!passwordValidation.isValid) {
+    return res.status(400).json({ success: false, message: passwordValidation.message });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT reset_otp, reset_otp_expiry FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const user = result.rows[0];
+    if (user.reset_otp !== otp || new Date(user.reset_otp_expiry) < new Date()) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      "UPDATE users SET password = $1, reset_otp = NULL, reset_otp_expiry = NULL, session_token_version = session_token_version + 1 WHERE email = $2",
+      [hashedPassword, email]
+    );
+
+    res.json({ success: true, message: "Password reset successfully" });
+  } catch (err) {
+    console.error("Error in resetPassword:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 
 module.exports = {
   addUser,
@@ -1143,4 +1252,7 @@ module.exports = {
   getUsersByRole,
   getUsersByOrganization,
   changePassword,
+  forgotPassword,
+  verifyOtp,
+  resetPassword,
 };

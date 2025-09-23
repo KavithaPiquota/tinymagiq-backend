@@ -6,7 +6,9 @@ const { restrictTo } = require("../../middleware/rbac");
 
 // Public route
 router.post("/login", usersController.loginUser);
-
+router.post("/forgot-password", usersController.forgotPassword);
+router.post("/verify-otp", usersController.verifyOtp);
+router.post("/reset-password", usersController.resetPassword);
 // Protected routes
 router.get("/verify", authMiddleware, usersController.verifyUser);
 router.post(
@@ -77,5 +79,6 @@ router.post(
 );
 // Logout route
 router.post("/logout", authMiddleware, usersController.logoutUser);
+
 
 module.exports = router;
