@@ -1,9 +1,17 @@
 const { pool } = require("../config/database");
 const OpenAI = require("openai");
 const NodeCache = require("node-cache");
-const fs = require("fs").promises; // Add fs.promises for async file operations
-const path = require("path"); // Add path for safe file handling
-const cache = new NodeCache({ stdTTL: 3600 }); // 1-hour TTL for template caching
+const fs = require("fs").promises;
+const path = require("path");
+const cache = new NodeCache({ stdTTL: 3600 });
+const { Langfuse } = require("langfuse"); // Import Langfuse SDK
+
+// Initialize Langfuse client
+const langfuse = new Langfuse({
+  publicKey: process.env.LANGFUSE_PUBLIC_KEY || "your-langfuse-public-key",
+  secretKey: process.env.LANGFUSE_SECRET_KEY || "your-langfuse-secret-key",
+  baseUrl: process.env.LANGFUSE_HOST || "https://cloud.langfuse.com", // Adjust if using self-hosted Langfuse
+});
 
 // Utility to create logs directory
 const ensureLogsDirectory = async () => {
@@ -65,20 +73,27 @@ const isValidJsonString = (str) => {
 };
 
 // Utility to process template with selected concept data
-const processTemplate = (templateContent, selectedConcept, sessionHistory = []) => {
+const processTemplate = (
+  templateContent,
+  selectedConcept,
+  sessionHistory = []
+) => {
   if (!templateContent || !selectedConcept) {
     return templateContent;
   }
-  
-   const filteredHistory = sessionHistory.filter(
+
+  const filteredHistory = sessionHistory.filter(
     (entry) => entry.concept_name === selectedConcept.concept_name
   );
 
   const conversationHistory = filteredHistory
     .map((entry) => `Mentee: ${entry.Mentee}\nMentor: ${entry.Mentor}`)
     .join("\n");
-     
-  console.log("Processing template with conversation history length:", conversationHistory.length);
+
+  console.log(
+    "Processing template with conversation history length:",
+    conversationHistory.length
+  );
 
   let processedContent = templateContent;
 
@@ -116,7 +131,8 @@ const processTemplate = (templateContent, selectedConcept, sessionHistory = []) 
     "{{NUMBER_OF_SCENARIOS}}": selectedConcept.number_of_scenarios || "",
     "{{FACET_FOCUS}}": selectedConcept.facet_focus || "",
     "{{INTRODUCTION_CONTEXT}}": selectedConcept.introduction_context || "",
-    "{{PROGRESSION_DESCRIPTION}}": selectedConcept.progression_description || "",
+    "{{PROGRESSION_DESCRIPTION}}":
+      selectedConcept.progression_description || "",
     "{{TASK_QUESTIONS}}": selectedConcept.task_questions || "",
     "{{REFLECTION_QUESTIONS}}": selectedConcept.reflection_questions || "",
     "{{STRENGTH_CHECKLIST}}": selectedConcept.strength_checklist || "",
@@ -502,7 +518,7 @@ const updatePrompt = async (req, res) => {
 };
 
 const getPrompts = async (req, res) => {
-  const { scope, organization_id, batch_id } = req.query; // 'archived' or 'all', optional organization_id and batch_id
+  const { scope, organization_id, batch_id } = req.query;
 
   try {
     let query = `
@@ -1176,6 +1192,26 @@ ${JSON.stringify(modifiedBody, null, 2)}
     console.log("Initializing OpenAI client...");
     const openai = await initializeOpenAI();
 
+    // Create Langfuse trace
+    const trace = langfuse.trace({
+      name: `processLLM-${selectedPrompt}`,
+      userId: safeUsername,
+      sessionId: organizationId.toString(),
+      metadata: {
+        organizationId,
+        batchId,
+        selectedModel,
+        selectedPrompt,
+        conceptName: selectedConcept?.concept_name,
+      },
+    });
+
+    // Create a span for template loading
+    const templateSpan = trace.span({
+      name: "load-template",
+      input: { selectedPrompt, organizationId, batchId },
+    });
+
     // Load template with caching
     console.log(`Loading template for ${selectedPrompt}...`);
     const cacheKey = `${selectedPrompt}:${organizationId}:${batchId}`;
@@ -1190,6 +1226,15 @@ ${JSON.stringify(modifiedBody, null, 2)}
       console.log(`Cached template ${cacheKey}`);
     }
     console.log("Template loaded:", templateContent.substring(0, 100) + "...");
+    templateSpan.end({
+      output: { templateContent: templateContent.substring(0, 100) + "..." },
+    });
+
+    // Create a span for template processing
+    const processSpan = trace.span({
+      name: "process-template",
+      input: { templateContent, selectedConcept },
+    });
 
     // Process template
     console.log("Processing template...");
@@ -1197,8 +1242,14 @@ ${JSON.stringify(modifiedBody, null, 2)}
       templateContent,
       selectedConcept
     );
+    processSpan.end({
+      output: {
+        processedSystemContent:
+          processedSystemContent.substring(0, 100) + "...",
+      },
+    });
 
-    // Prepare user input (truncate for assessmentPrompt)
+    // Prepare user input
     const isFirstMessage = sessionHistory.length === 0;
     const maxHistoryEntries =
       selectedPrompt === "assessmentPrompt" ? 5 : sessionHistory.length;
@@ -1218,6 +1269,19 @@ ${JSON.stringify(modifiedBody, null, 2)}
     } else {
       messages.push({ role: "user", content: "" });
     }
+
+    // Create a generation for the OpenAI API call
+    const generation = trace.generation({
+      name: "openai-chat-completion",
+      model: selectedModel,
+      input: messages,
+      metadata: {
+        maxTokens: selectedPrompt === "assessmentPrompt" ? 6000 : 4000,
+        temperature: 0.7,
+        topP: 1,
+        stream: selectedPrompt === "assessmentPrompt",
+      },
+    });
 
     // Call OpenAI API
     const maxTokens = selectedPrompt === "assessmentPrompt" ? 6000 : 4000;
@@ -1254,6 +1318,12 @@ ${JSON.stringify(modifiedBody, null, 2)}
     const endTime = Date.now();
     console.log(`OpenAI API call took ${(endTime - startTime) / 1000} seconds`);
     console.log("OpenAI response:", responseText.substring(0, 200) + "...");
+
+    // Log completion to Langfuse
+    generation.end({
+      output: responseText,
+      latency: (endTime - startTime) / 1000,
+    });
 
     // Append OpenAI response to log
     await fs.appendFile(
@@ -1399,6 +1469,12 @@ ${error.message}
 
 `
     );
+    // Log error to Langfuse
+    trace.span({
+      name: "error",
+      input: { errorMessage: error.message },
+      output: { status: "failed" },
+    });
     return res.status(500).json({
       success: false,
       error: "Internal server error",
@@ -1406,6 +1482,9 @@ ${error.message}
         ? `No prompt found for ${selectedPrompt}. Please contact support.`
         : error.message,
     });
+  } finally {
+    // Ensure Langfuse trace is flushed
+    await langfuse.flush();
   }
 };
 
