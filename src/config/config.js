@@ -14,7 +14,7 @@ module.exports = {
 
   jwt: {
     secret: process.env.JWT_SECRET || "fallback-secret-key",
-    expiresIn: "24h",
+    expiresIn: "2h",
   },
 
   cors: {

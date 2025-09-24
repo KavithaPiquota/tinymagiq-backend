@@ -4,7 +4,7 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
-const http = require("http"); // Added for server timeout
+const http = require("http");
 
 const config = require("./config/config");
 const corsMiddleware = require("./middleware/cors");
@@ -12,6 +12,26 @@ const errorHandler = require("./middleware/errorHandler");
 const routes = require("./routes");
 
 const app = express();
+
+// Define allowed hosts
+const ALLOWED_HOSTS = [
+  "nextgenlearn.api.magiqspark.ai",
+  "localhost:5000", // Allow localhost for development
+];
+
+// Host header validation middleware
+app.use((req, res, next) => {
+  const host = req.get("host");
+  if (!ALLOWED_HOSTS.includes(host)) {
+    console.error(`Invalid Host header: ${host}`);
+    return res.status(403).json({
+      error: "Invalid Host header",
+      message: `Host ${host} is not allowed`,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  next();
+});
 
 // Security middleware
 app.use(helmet());
@@ -32,7 +52,7 @@ app.use((req, res, next) => {
   console.log(
     `CORS middleware: ${req.method} ${req.url} from Origin: ${req.get("Origin")}`
   );
-  res.setHeader("Connection", "keep-alive"); // Keep connection alive for long requests
+  res.setHeader("Connection", "keep-alive");
   res.on("finish", () => {
     console.log(
       `Response headers for ${req.method} ${req.url}:`,
@@ -128,12 +148,12 @@ app.get("/migrate/status", async (req, res) => {
     const { pool } = require("./config/database");
 
     const result = await pool.query(`
-               SELECT table_name 
-               FROM information_schema.tables 
-               WHERE table_schema = 'public' 
-               AND table_name IN ('chat', 'prompt_templates', 'users')
-               ORDER BY table_name
-           `);
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name IN ('chat', 'prompt_templates', 'users')
+            ORDER BY table_name
+        `);
 
     const existingTables = result.rows.map((row) => row.table_name);
     const expectedTables = ["chat", "prompt_templates", "users"];
