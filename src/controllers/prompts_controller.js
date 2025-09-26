@@ -156,7 +156,7 @@ const loadTemplate = async (templateName, organization_id, batch_id) => {
     FROM prompts
     WHERE prompt_type = $1
     AND isarchived = FALSE
-    AND prompt_level = 'global'
+    AND prompt_level = 'batch'
     AND organization_id = $2
     AND batch_id = $3
   `;

@@ -39,8 +39,9 @@
     "jsonwebtoken": "^9.0.2",
     "langfuse": "^3.38.5",
     "morgan": "^1.10.0",
+    "multer": "^2.0.2",
     "node-cache": "^5.1.2",
-    "openai": "^5.12.2",
+    "openai": "^5.23.0",
     "pg": "^8.16.0"
   },
   "devDependencies": {

@@ -15,7 +15,7 @@ const apikeyRoutes = require("./apikey/apikey");
 const reportsRoutes = require("./reports/reports");
 const promptsRouter = require("./prompts/prompts");
 const practicemodeRoutes = require("./practicemode/practicemode");
-
+const transcribeRoutes = require("./transcribe/transcribe");
 // Import sanitization middleware with error handling
 let sanitizeRequest;
 try {
@@ -112,6 +112,8 @@ router.use("/reports", reportsRoutes);
 router.use("/prompts", promptsRouter);
 
 router.use("/practicemode", practicemodeRoutes);
+
+router.use("/transcribe", transcribeRoutes);
 
 // Chat routes - with error handling
 try {
