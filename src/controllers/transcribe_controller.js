@@ -73,6 +73,7 @@ const transcribeAudio = async (req, res) => {
     const transcription = await openai.audio.transcriptions.create({
       file: fileStream,
       model: "gpt-4o-transcribe",
+      language: "en",
     });
 
     // Clean up the temporary file
