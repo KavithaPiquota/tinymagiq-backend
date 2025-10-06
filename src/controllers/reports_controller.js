@@ -114,14 +114,40 @@ const getProgressReport = async (req, res) => {
       values.push(`%${concept_name}%`);
     }
 
-    if (mentor_id) {
+    // New authorization logic to prevent IDOR
+    if (req.user.role === "mentor") {
+      // Force filter to the authenticated mentor's own ID
       conditions.push(`p.mentor_id = $${values.length + 1}`);
-      values.push(parseInt(mentor_id));
-    }
+      values.push(req.user.user_id);
 
-    if (mentor_email) {
-      conditions.push(`m.email = $${values.length + 1}`);
-      values.push(mentor_email);
+      // Optional: Strictly forbid if query provides a mismatched mentor_id
+      if (mentor_id && parseInt(mentor_id) !== req.user.user_id) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own progress reports",
+        });
+      }
+
+      // Similarly, handle mentor_email if provided (ignore or check)
+      if (mentor_email && mentor_email !== req.user.email) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own progress reports",
+        });
+      }
+    } else if (req.user.role === "orgadmin") {
+      // Allow flexible filtering for orgadmins
+      if (mentor_id) {
+        conditions.push(`p.mentor_id = $${values.length + 1}`);
+        values.push(parseInt(mentor_id));
+      }
+
+      if (mentor_email) {
+        conditions.push(`m.email = $${values.length + 1}`);
+        values.push(mentor_email);
+      }
     }
 
     if (conditions.length > 0) {
