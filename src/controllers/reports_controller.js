@@ -54,10 +54,19 @@ const getProgressReport = async (req, res) => {
       o.organization_name,
       b.batch_name,
       p.pod_name,
-      m.first_name AS mentor_first_name,
-      m.last_name AS mentor_last_name,
-      m.email AS mentor_email,
-      m.username AS mentor_username,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'user_id', pm.user_id,
+            'first_name', pm.first_name,
+            'last_name', pm.last_name,
+            'email', pm.email,
+            'username', pm.username
+          )
+          ORDER BY pm.user_id
+        ) FILTER (WHERE pm.user_id IS NOT NULL),
+        '[]'::json
+      ) AS mentors,
       c.explanation_score,
       c.interpretation_score,
       c.application_score,
@@ -83,7 +92,14 @@ const getProgressReport = async (req, res) => {
       LEFT JOIN pod_users pu ON u.user_id = pu.user_id
       LEFT JOIN pods p ON pu.pod_id = p.pod_id
       LEFT JOIN batches b ON p.batch_id = b.batch_id
-      LEFT JOIN users m ON p.mentor_id = m.user_id
+      LEFT JOIN LATERAL (
+        SELECT u2.user_id, u2.first_name, u2.last_name, u2.email, u2.username
+        FROM pod_mentors pm2
+        JOIN users u2 ON pm2.mentor_id = u2.user_id
+        JOIN roles r ON u2.role_id = r.role_id
+        WHERE pm2.pod_id = p.pod_id AND r.role = 'mentor'
+        ORDER BY u2.user_id
+      ) pm ON true
       WHERE c.user_id ~ '^[0-9]+$' -- Ensure user_id is numeric
     `;
     // Alternative joins if user_id is not numeric:
@@ -114,21 +130,47 @@ const getProgressReport = async (req, res) => {
       values.push(`%${concept_name}%`);
     }
 
-    if (mentor_id) {
-      conditions.push(`p.mentor_id = $${values.length + 1}`);
-      values.push(parseInt(mentor_id));
-    }
+    // New authorization logic to prevent IDOR
+    if (req.user.role === "mentor") {
+      // Force filter to the authenticated mentor's own pods
+      conditions.push(`EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $${values.length + 1})`);
+      values.push(req.user.user_id);
 
-    if (mentor_email) {
-      conditions.push(`m.email = $${values.length + 1}`);
-      values.push(mentor_email);
+      // Optional: Strictly forbid if query provides a mismatched mentor_id
+      if (mentor_id && parseInt(mentor_id) !== req.user.user_id) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own progress reports",
+        });
+      }
+
+      // Similarly, handle mentor_email if provided (ignore or check)
+      if (mentor_email && mentor_email !== req.user.email) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own progress reports",
+        });
+      }
+    } else if (req.user.role === "orgadmin") {
+      // Allow flexible filtering for orgadmins
+      if (mentor_id) {
+        conditions.push(`EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $${values.length + 1})`);
+        values.push(parseInt(mentor_id));
+      }
+
+      if (mentor_email) {
+        conditions.push(`EXISTS (SELECT 1 FROM pod_mentors pm JOIN users mu ON pm.mentor_id = mu.user_id WHERE pm.pod_id = p.pod_id AND mu.email = $${values.length + 1})`);
+        values.push(mentor_email);
+      }
     }
 
     if (conditions.length > 0) {
       query += ` AND ${conditions.join(" AND ")}`;
     }
 
-    query += ` ORDER BY c.updated_at DESC`;
+    query += ` GROUP BY c.id, c.user_id, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at, u.first_name, u.last_name, u.email, u.username, o.organization_name, b.batch_name, p.pod_name, c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score ORDER BY c.updated_at DESC`;
 
     console.log("Executing query:", query, "with values:", values);
     const result = await pool.query(query, values);

@@ -51,14 +51,30 @@ const getMentorPods = async (req, res) => {
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "WHERE p.mentor_id = $1",
+        "WHERE EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $1) " +
+        "AND p.is_active = TRUE AND b.is_active = TRUE",
       [mentor_id]
     );
+    const pods = result.rows.map(async (pod) => {
+      const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
+      return {
+        ...pod,
+        mentors: mentorResult.rows,
+      };
+    });
+    const processedPods = await Promise.all(pods);
     res.json({
       success: true,
-      data: result.rows,
+      data: processedPods,
       message:
-        result.rows.length > 0
+        processedPods.length > 0
           ? "Mentor pods fetched successfully"
           : "No pods assigned to mentor",
     });
@@ -90,7 +106,8 @@ const getMentorPodConcepts = async (req, res) => {
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "WHERE p.mentor_id = $1",
+        "WHERE EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $1) " +
+        "AND p.is_active = TRUE AND b.is_active = TRUE",
       [mentor_id]
     );
     const pods = await Promise.all(
@@ -98,6 +115,14 @@ const getMentorPodConcepts = async (req, res) => {
         const conceptsResult = await pool.query(
           "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
           [pod.batch_id]
+        );
+        const mentorResult = await pool.query(
+          `SELECT u.user_id, u.first_name, u.last_name, u.email 
+           FROM pod_mentors pm 
+           JOIN users u ON pm.mentor_id = u.user_id 
+           JOIN roles r ON u.role_id = r.role_id 
+           WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+          [pod.pod_id]
         );
         return {
           pod_id: pod.pod_id,
@@ -115,6 +140,7 @@ const getMentorPodConcepts = async (req, res) => {
             },
             concepts: conceptsResult.rows,
           },
+          mentors: mentorResult.rows,
         };
       })
     );
@@ -154,7 +180,8 @@ const getMentorOrguserProgress = async (req, res) => {
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "WHERE p.mentor_id = $1",
+        "WHERE EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $1) " +
+        "AND p.is_active = TRUE AND b.is_active = TRUE",
       [mentor_id]
     );
     const pods = await Promise.all(
@@ -162,7 +189,8 @@ const getMentorOrguserProgress = async (req, res) => {
         const usersResult = await pool.query(
           "SELECT u.user_id, u.first_name, u.last_name, u.email, u.username " +
             "FROM users u JOIN pod_users pu ON u.user_id = pu.user_id " +
-            "WHERE pu.pod_id = $1",
+            "JOIN roles r ON u.role_id = r.role_id " +
+            "WHERE pu.pod_id = $1 AND r.role = 'orguser'",
           [pod.pod_id]
         );
         const users = await Promise.all(
@@ -184,6 +212,14 @@ const getMentorOrguserProgress = async (req, res) => {
             };
           })
         );
+        const mentorResult = await pool.query(
+          `SELECT u.user_id, u.first_name, u.last_name, u.email 
+           FROM pod_mentors pm 
+           JOIN users u ON pm.mentor_id = u.user_id 
+           JOIN roles r ON u.role_id = r.role_id 
+           WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+          [pod.pod_id]
+        );
         return {
           pod_id: pod.pod_id,
           pod_name: pod.pod_name,
@@ -199,6 +235,7 @@ const getMentorOrguserProgress = async (req, res) => {
               organization_name: pod.organization_name,
             },
           },
+          mentors: mentorResult.rows,
           users,
         };
       })
@@ -238,7 +275,7 @@ const getMentorOrguserDetails = async (req, res) => {
       "SELECT pu.pod_user_id, pu.pod_id, pu.created_at AS pod_assigned_at " +
         "FROM pod_users pu " +
         "JOIN pods p ON pu.pod_id = p.pod_id " +
-        "WHERE pu.user_id = $1 AND p.mentor_id = $2",
+        "WHERE pu.user_id = $1 AND EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $2)",
       [user.user_id, mentor_id]
     );
     let responseData = {
@@ -262,11 +299,10 @@ const getMentorOrguserDetails = async (req, res) => {
     }
     const podUser = podUserResult.rows[0];
     const podResult = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
         "WHERE p.pod_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
       [podUser.pod_id]
     );
@@ -283,6 +319,14 @@ const getMentorOrguserDetails = async (req, res) => {
           "SELECT bc.concept_id FROM batch_concepts bc WHERE bc.batch_id = $2)",
         [user.user_id, pod.batch_id]
       );
+      const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
       responseData.pod = {
         pod_user_id: podUser.pod_user_id,
         pod_id: pod.pod_id,
@@ -290,12 +334,7 @@ const getMentorOrguserDetails = async (req, res) => {
         is_active: pod.is_active,
         created_at: pod.created_at,
         pod_assigned_at: podUser.pod_assigned_at,
-        mentor: {
-          user_id: pod.mentor_id,
-          first_name: pod.mentor_first_name,
-          last_name: pod.mentor_last_name,
-          email: pod.mentor_email,
-        },
+        mentors: mentorResult.rows,
       };
       responseData.batch = {
         batch_id: pod.batch_id,

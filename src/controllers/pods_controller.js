@@ -50,37 +50,74 @@ const addPod = async (req, res) => {
   const {
     organization_name,
     batch_name,
-    mentor_email,
-    mentor_id,
+    
     pod_name,
     is_active = true,
+    mentors,
   } = req.body;
 
   if (
     !organization_name ||
     !batch_name ||
     !pod_name ||
-    (!mentor_email && !mentor_id)
+    (!mentors || !Array.isArray(mentors) || mentors.length === 0)
   ) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
       message:
-        "Organization name, batch name, pod name, and mentor email or ID are required",
+        "Organization name, batch name, pod name, and at least one mentor identifier are required",
     });
   }
 
   try {
     const organization_id = await getOrganizationIdByName(organization_name);
     const batch = await getBatchIdByName(batch_name, organization_id);
+    const mentorObjects = [];
+    for (const ident of mentors) {
+      let mentor_email = null;
+      let mentor_id = null;
+      if (typeof ident === "string") {
+        const num = parseInt(ident, 10);
+        if (isNaN(num)) {
+          mentor_email = ident;
+        } else {
+          mentor_id = num;
+        }
+      } else if (typeof ident === "number" && !isNaN(ident)) {
+        mentor_id = ident;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: "Bad request",
+          message: `Invalid mentor identifier: ${ident}`,
+        });
+      }
     const mentor = await getMentorIdByEmailOrId(mentor_email, mentor_id);
 
+      mentorObjects.push(mentor);
+    }
+
     const result = await pool.query(
-      "INSERT INTO pods (organization_id, batch_id, mentor_id, pod_name, is_active) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [organization_id, batch.batch_id, mentor.user_id, pod_name, is_active]
+      "INSERT INTO pods (organization_id, batch_id, pod_name, is_active) VALUES ($1, $2, $3, $4) RETURNING *",
+      [organization_id, batch.batch_id, pod_name, is_active]
     );
 
     const pod = result.rows[0];
+    for (const mentor of mentorObjects) {
+      try {
+        await pool.query(
+          "INSERT INTO pod_mentors (pod_id, mentor_id) VALUES ($1, $2)",
+          [pod.pod_id, mentor.user_id]
+        );
+      } catch (error) {
+        if (error.code === "23505") {
+          console.log("Duplicate mentor skipped");
+        } else {
+          throw error;
+        }
+      }
+    }
     const batchResult = await pool.query(
       "SELECT b.*, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.batch_id = $1",
       [pod.batch_id]
@@ -95,12 +132,12 @@ const addPod = async (req, res) => {
       data: {
         ...pod,
         batch: { ...batchResult.rows[0], concepts: conceptsResult.rows },
-        mentor: {
-          user_id: mentor.user_id,
-          first_name: mentor.first_name,
-          last_name: mentor.last_name,
-          email: mentor.email,
-        },
+        mentors: mentorObjects.map(m => ({
+          user_id: m.user_id,
+          first_name: m.first_name,
+          last_name: m.last_name,
+          email: m.email,
+        })),
       },
       message: "Pod created successfully",
     });
@@ -140,20 +177,19 @@ const updatePod = async (req, res) => {
   const {
     organization_name,
     batch_name,
-    mentor_email,
-    mentor_id,
     pod_name,
     is_active,
+    mentors,
   } = req.body;
 
-  if (
-    !organization_name &&
-    !batch_name &&
-    !mentor_email &&
-    !mentor_id &&
-    !pod_name &&
-    is_active === undefined
-  ) {
+  let hasUpdate = false;
+  if (organization_name !== undefined) hasUpdate = true;
+  if (batch_name !== undefined) hasUpdate = true;
+  if (pod_name !== undefined) hasUpdate = true;
+  if (is_active !== undefined) hasUpdate = true;
+  if (mentors !== undefined) hasUpdate = true;
+
+  if (!hasUpdate) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
@@ -162,45 +198,38 @@ const updatePod = async (req, res) => {
   }
 
   try {
-    let organization_id, batch, mentor;
-    if (organization_name || batch_name) {
-      organization_id = organization_name
-        ? await getOrganizationIdByName(organization_name)
-        : null;
-      batch = batch_name
-        ? await getBatchIdByName(
-            batch_name,
-            organization_id ||
-              (
-                await pool.query(
-                  "SELECT organization_id FROM pods WHERE pod_id = $1",
-                  [pod_id]
-                )
-              ).rows[0].organization_id
-          )
-        : null;
-    }
-    if (mentor_email || mentor_id) {
-      mentor = await getMentorIdByEmailOrId(mentor_email, mentor_id);
+    let organization_id, batch;
+    if (organization_name !== undefined || batch_name !== undefined) {
+      if (organization_name !== undefined) {
+        organization_id = await getOrganizationIdByName(organization_name);
+      }
+      if (batch_name !== undefined) {
+        const currentPodResult = await pool.query(
+          "SELECT organization_id FROM pods WHERE pod_id = $1",
+          [pod_id]
+        );
+        if (currentPodResult.rows.length === 0) {
+          throw new Error("Pod not found");
+        }
+        const orgForBatch =
+          organization_id || currentPodResult.rows[0].organization_id;
+        batch = await getBatchIdByName(batch_name, orgForBatch);
+      }
     }
 
     const fields = [];
     const values = [];
     let index = 1;
 
-    if (organization_name) {
+    if (organization_name !== undefined) {
       fields.push(`organization_id = $${index++}`);
       values.push(organization_id);
     }
-    if (batch_name) {
+    if (batch_name !== undefined) {
       fields.push(`batch_id = $${index++}`);
       values.push(batch.batch_id);
     }
-    if (mentor_email || mentor_id) {
-      fields.push(`mentor_id = $${index++}`);
-      values.push(mentor.user_id);
-    }
-    if (pod_name) {
+    if (pod_name !== undefined) {
       fields.push(`pod_name = $${index++}`);
       values.push(pod_name);
     }
@@ -237,6 +266,47 @@ const updatePod = async (req, res) => {
       pod = result.rows[0];
     }
 
+    if (mentors !== undefined) {
+      await pool.query("DELETE FROM pod_mentors WHERE pod_id = $1", [
+        pod.pod_id,
+      ]);
+      if (Array.isArray(mentors) && mentors.length > 0) {
+        for (const ident of mentors) {
+          let mentor_email = null;
+          let mentor_id = null;
+          if (typeof ident === "string") {
+            const num = parseInt(ident, 10);
+            if (isNaN(num)) {
+              mentor_email = ident;
+            } else {
+              mentor_id = num;
+            }
+          } else if (typeof ident === "number" && !isNaN(ident)) {
+            mentor_id = ident;
+          } else {
+            return res.status(400).json({
+              success: false,
+              error: "Bad request",
+              message: `Invalid mentor identifier: ${ident}`,
+            });
+          }
+          const mentor = await getMentorIdByEmailOrId(mentor_email, mentor_id);
+          try {
+            await pool.query(
+              "INSERT INTO pod_mentors (pod_id, mentor_id) VALUES ($1, $2)",
+              [pod.pod_id, mentor.user_id]
+            );
+          } catch (error) {
+            if (error.code === "23505") {
+              console.log("Duplicate mentor skipped");
+            } else {
+              throw error;
+            }
+          }
+        }
+      }
+    }
+
     const batchResult = await pool.query(
       "SELECT b.*, o.organization_name FROM batches b JOIN organizations o ON b.organization_id = o.organization_id WHERE b.batch_id = $1",
       [pod.batch_id]
@@ -253,8 +323,12 @@ const updatePod = async (req, res) => {
       [pod.batch_id]
     );
     const mentorResult = await pool.query(
-      "SELECT user_id, first_name, last_name, email FROM users WHERE user_id = $1",
-      [pod.mentor_id]
+      `SELECT u.user_id, u.first_name, u.last_name, u.email 
+       FROM pod_mentors pm 
+       JOIN users u ON pm.mentor_id = u.user_id 
+       JOIN roles r ON u.role_id = r.role_id 
+       WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+      [pod.pod_id]
     );
 
     res.json({
@@ -262,7 +336,7 @@ const updatePod = async (req, res) => {
       data: {
         ...pod,
         batch: { ...batchResult.rows[0], concepts: conceptsResult.rows },
-        mentor: mentorResult.rows[0],
+        mentors: mentorResult.rows,
       },
       message: "Pod updated successfully",
     });
@@ -300,11 +374,10 @@ const updatePod = async (req, res) => {
 const getAllPods = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
         "WHERE p.is_active = TRUE AND b.is_active = TRUE"
     );
     const pods = result.rows;
@@ -321,20 +394,20 @@ const getAllPods = async (req, res) => {
         organization_name: pod.organization_name,
         concepts: conceptsResult.rows,
       };
-      pod.mentor = {
-        user_id: pod.user_id,
-        first_name: pod.first_name,
-        last_name: pod.last_name,
-        email: pod.email,
-      };
+     const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
+      pod.mentors = mentorResult.rows;
       delete pod.batch_name;
       delete pod.batch_size;
       delete pod.batch_is_active;
       delete pod.organization_name;
-      delete pod.user_id;
-      delete pod.first_name;
-      delete pod.last_name;
-      delete pod.email;
+      
     }
     res.json({
       success: true,
@@ -356,7 +429,7 @@ const getPodsByOrganization = async (req, res) => {
   try {
     const organization_id = await getOrganizationIdByName(organization_name);
     const result = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
@@ -378,20 +451,19 @@ const getPodsByOrganization = async (req, res) => {
         organization_name: pod.organization_name,
         concepts: conceptsResult.rows,
       };
-      pod.mentor = {
-        user_id: pod.user_id,
-        first_name: pod.first_name,
-        last_name: pod.last_name,
-        email: pod.email,
-      };
+      const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
+      pod.mentors = mentorResult.rows;
       delete pod.batch_name;
       delete pod.batch_size;
       delete pod.batch_is_active;
       delete pod.organization_name;
-      delete pod.user_id;
-      delete pod.first_name;
-      delete pod.last_name;
-      delete pod.email;
     }
     res.json({
       success: true,
@@ -420,12 +492,12 @@ const getPodsByMentorEmail = async (req, res) => {
   try {
     const mentor = await getMentorIdByEmailOrId(mentor_email, null);
     const result = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
-        "WHERE p.mentor_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
+        "WHERE EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $1) " +
+        "AND p.is_active = TRUE AND b.is_active = TRUE",
       [mentor.user_id]
     );
     const pods = result.rows;
@@ -442,20 +514,19 @@ const getPodsByMentorEmail = async (req, res) => {
         organization_name: pod.organization_name,
         concepts: conceptsResult.rows,
       };
-      pod.mentor = {
-        user_id: pod.user_id,
-        first_name: pod.first_name,
-        last_name: pod.last_name,
-        email: pod.email,
-      };
+      const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
+      pod.mentors = mentorResult.rows;
       delete pod.batch_name;
       delete pod.batch_size;
       delete pod.batch_is_active;
       delete pod.organization_name;
-      delete pod.user_id;
-      delete pod.first_name;
-      delete pod.last_name;
-      delete pod.email;
     }
     res.json({
       success: true,
@@ -484,12 +555,12 @@ const getPodsByMentorId = async (req, res) => {
   try {
     const mentor = await getMentorIdByEmailOrId(null, mentor_id);
     const result = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
-        "WHERE p.mentor_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
+        "WHERE EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = p.pod_id AND pm.mentor_id = $1) " +
+        "AND p.is_active = TRUE AND b.is_active = TRUE",
       [mentor.user_id]
     );
     const pods = result.rows;
@@ -506,20 +577,19 @@ const getPodsByMentorId = async (req, res) => {
         organization_name: pod.organization_name,
         concepts: conceptsResult.rows,
       };
-      pod.mentor = {
-        user_id: pod.user_id,
-        first_name: pod.first_name,
-        last_name: pod.last_name,
-        email: pod.email,
-      };
+      const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
+      pod.mentors = mentorResult.rows;
       delete pod.batch_name;
       delete pod.batch_size;
       delete pod.batch_is_active;
       delete pod.organization_name;
-      delete pod.user_id;
-      delete pod.first_name;
-      delete pod.last_name;
-      delete pod.email;
     }
     res.json({
       success: true,
@@ -547,11 +617,10 @@ const getPodByName = async (req, res) => {
   const { pod_name } = req.params;
   try {
     const result = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
         "WHERE p.pod_name = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
       [pod_name]
     );
@@ -575,20 +644,19 @@ const getPodByName = async (req, res) => {
       organization_name: pod.organization_name,
       concepts: conceptsResult.rows,
     };
-    pod.mentor = {
-      user_id: pod.user_id,
-      first_name: pod.first_name,
-      last_name: pod.last_name,
-      email: pod.email,
-    };
+    const mentorResult = await pool.query(
+      `SELECT u.user_id, u.first_name, u.last_name, u.email 
+       FROM pod_mentors pm 
+       JOIN users u ON pm.mentor_id = u.user_id 
+       JOIN roles r ON u.role_id = r.role_id 
+       WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+      [pod.pod_id]
+    );
+    pod.mentors = mentorResult.rows;
     delete pod.batch_name;
     delete pod.batch_size;
     delete pod.batch_is_active;
     delete pod.organization_name;
-    delete pod.user_id;
-    delete pod.first_name;
-    delete pod.last_name;
-    delete pod.email;
     res.json({
       success: true,
       data: pod,
@@ -608,11 +676,10 @@ const getPodById = async (req, res) => {
   const { pod_id } = req.params;
   try {
     const result = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
         "WHERE p.pod_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
       [pod_id]
     );
@@ -636,6 +703,14 @@ const getPodById = async (req, res) => {
         "WHERE pu.pod_id = $1 AND r.role = $2",
       [pod.pod_id, "orguser"]
     );
+    const mentorResult = await pool.query(
+      `SELECT u.user_id, u.first_name, u.last_name, u.email 
+       FROM pod_mentors pm 
+       JOIN users u ON pm.mentor_id = u.user_id 
+       JOIN roles r ON u.role_id = r.role_id 
+       WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+      [pod.pod_id]
+    );
     res.json({
       success: true,
       data: {
@@ -644,7 +719,6 @@ const getPodById = async (req, res) => {
         organization_name: pod.organization_name,
         batch_id: pod.batch_id,
         batch_name: pod.batch_name,
-        mentor_id: pod.mentor_id,
         pod_name: pod.pod_name,
         is_active: pod.is_active,
         created_at: pod.created_at,
@@ -656,12 +730,7 @@ const getPodById = async (req, res) => {
           organization_name: pod.organization_name,
           concepts: conceptsResult.rows,
         },
-        mentor: {
-          user_id: pod.user_id,
-          first_name: pod.first_name,
-          last_name: pod.last_name,
-          email: pod.email,
-        },
+        mentors: mentorResult.rows,
         orgusers: orgusersResult.rows,
       },
       message: "Pod fetched successfully",

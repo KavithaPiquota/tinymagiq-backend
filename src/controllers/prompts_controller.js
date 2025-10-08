@@ -1,8 +1,7 @@
 const { pool } = require("../config/database");
 const OpenAI = require("openai");
 const NodeCache = require("node-cache");
-const fs = require("fs").promises;
-const path = require("path");
+
 const cache = new NodeCache({ stdTTL: 3600 });
 const { Langfuse } = require("langfuse"); // Import Langfuse SDK
 
@@ -13,18 +12,7 @@ const langfuse = new Langfuse({
   baseUrl: process.env.LANGFUSE_HOST || "https://cloud.langfuse.com", // Adjust if using self-hosted Langfuse
 });
 
-// Utility to create logs directory
-const ensureLogsDirectory = async () => {
-  const logsDir = path.join(__dirname, "../logs"); // logs/ directory in project root
-  try {
-    await fs.mkdir(logsDir, { recursive: true });
-    console.log("Logs directory ensured:", logsDir);
-  } catch (error) {
-    console.error("Error creating logs directory:", error.message);
-  }
-};
 
-// Utility to sanitize username for safe filenames
 const sanitizeUsername = (username) => {
   if (!username) return "anonymous";
   // Replace invalid filename characters with underscores
@@ -1140,31 +1128,6 @@ const processLLM = async (req, res) => {
     },
   });
 
-  // Ensure logs directory exists
-  await ensureLogsDirectory();
-
-  // Sanitize username for filename
-  const safeUsername = sanitizeUsername(username);
-  const logFilePath = path.join(__dirname, "../logs", `${safeUsername}.txt`);
-
-  // Prepare log entry for user input, including only the last sessionHistory entry
-  const truncatedConcept =
-    JSON.stringify(selectedConcept).split(/\s+/).slice(0, 30).join(" ") +
-    (JSON.stringify(selectedConcept).split(/\s+/).length > 30 ? " ..." : "");
-  const modifiedBody = {
-    ...req.body,
-    sessionHistory:
-      sessionHistory.length > 0
-        ? [sessionHistory[sessionHistory.length - 1]]
-        : [],
-    selectedConcept: truncatedConcept,
-  };
-  const logEntry = `
---- Request at ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })} IST ---
-User Input:
-${JSON.stringify(modifiedBody, null, 2)}
-`;
-
   try {
     // Validate inputs
     if (
@@ -1175,11 +1138,7 @@ ${JSON.stringify(modifiedBody, null, 2)}
       !batchId
     ) {
       console.error("Validation failed: Missing required fields");
-      // Append error to log
-      await fs.appendFile(
-        logFilePath,
-        `${logEntry}Error: Missing required fields\n\n`
-      );
+      
       return res.status(400).json({
         success: false,
         error: "Bad request",
@@ -1191,7 +1150,7 @@ ${JSON.stringify(modifiedBody, null, 2)}
     // Initialize OpenAI client
     console.log("Initializing OpenAI client...");
     const openai = await initializeOpenAI();
-
+     const safeUsername = sanitizeUsername(username);
     // Create Langfuse trace
     const trace = langfuse.trace({
       name: `processLLM-${selectedPrompt}`,
@@ -1325,14 +1284,7 @@ ${JSON.stringify(modifiedBody, null, 2)}
       latency: (endTime - startTime) / 1000,
     });
 
-    // Append OpenAI response to log
-    await fs.appendFile(
-      logFilePath,
-      `${logEntry}OpenAI Response:
-${responseText}
-
-`
-    );
+    
 
     // Default response structure
     let parsedResponse = {
@@ -1461,14 +1413,7 @@ ${responseText}
     }
   } catch (error) {
     console.error("Error in processLLM:", error);
-    // Append error to log
-    await fs.appendFile(
-      logFilePath,
-      `${logEntry}Error:
-${error.message}
-
-`
-    );
+   
     // Log error to Langfuse
     trace.span({
       name: "error",

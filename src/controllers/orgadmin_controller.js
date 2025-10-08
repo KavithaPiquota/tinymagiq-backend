@@ -78,12 +78,10 @@ const getPodsByOrgadmin = async (req, res) => {
   try {
     const orgadmin = await getOrgadminDetails(email);
     const podsResult = await pool.query(
-      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, " +
-        "u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
+      "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
         "JOIN batches b ON p.batch_id = b.batch_id " +
         "JOIN organizations o ON p.organization_id = o.organization_id " +
-        "JOIN users u ON p.mentor_id = u.user_id " +
         "WHERE p.organization_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
       [orgadmin.organization_id]
     );
@@ -102,6 +100,17 @@ const getPodsByOrgadmin = async (req, res) => {
           "WHERE bc.batch_id = $1",
         [pod.batch_id]
       );
+
+      // Get mentors from junction table
+      const mentorResult = await pool.query(
+        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+         FROM pod_mentors pm 
+         JOIN users u ON pm.mentor_id = u.user_id 
+         JOIN roles r ON u.role_id = r.role_id 
+         WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
+        [pod.pod_id]
+      );
+
       pod.batch = {
         batch_id: pod.batch_id,
         batch_name: pod.batch_name,
@@ -110,20 +119,11 @@ const getPodsByOrgadmin = async (req, res) => {
         organization_name: pod.organization_name,
         concepts: conceptsResult.rows,
       };
-      pod.mentor = {
-        user_id: pod.mentor_id,
-        first_name: pod.mentor_first_name,
-        last_name: pod.mentor_last_name,
-        email: pod.mentor_email,
-      };
+      pod.mentors = mentorResult.rows;
       delete pod.batch_name;
       delete pod.batch_size;
       delete pod.batch_is_active;
       delete pod.organization_name;
-      delete pod.mentor_id;
-      delete pod.mentor_first_name;
-      delete pod.mentor_last_name;
-      delete pod.mentor_email;
     }
     res.json({
       success: true,
