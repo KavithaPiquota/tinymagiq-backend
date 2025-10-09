@@ -8,6 +8,7 @@ const corsOptions = {
       "http://localhost:3001",
       "https://tiny-magic-7oa7.onrender.com",
       "https://tiny-magic-fwgb.onrender.com",
+      "https://tiny-magic-1.onrender.com",
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, origin || "https://nextgenlearn.magiqspark.ai");
