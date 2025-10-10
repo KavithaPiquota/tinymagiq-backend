@@ -1146,7 +1146,11 @@ const processLLM = async (req, res) => {
           "selectedPrompt, selectedModel, selectedConcept, organizationId, and batchId are required",
       });
     }
-
+   const orgResult = await pool.query(
+  'SELECT organization_name FROM organizations WHERE organization_id = $1',
+  [organizationId]
+);
+const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
     // Initialize OpenAI client
     console.log("Initializing OpenAI client...");
     const openai = await initializeOpenAI();
@@ -1155,9 +1159,9 @@ const processLLM = async (req, res) => {
     const trace = langfuse.trace({
       name: `processLLM-${selectedPrompt}`,
       userId: safeUsername,
-      sessionId: organizationId.toString(),
+      sessionId: organizationName,
       metadata: {
-        organizationId,
+        organizationName,
         batchId,
         selectedModel,
         selectedPrompt,

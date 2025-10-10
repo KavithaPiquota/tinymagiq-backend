@@ -72,7 +72,7 @@ const transcribeAudio = async (req, res) => {
     // Call OpenAI Whisper API for transcription
     const transcription = await openai.audio.transcriptions.create({
       file: fileStream,
-      model: "gpt-4o-transcribe",
+      model: "whisper-1",
       language: "en",
     });
 
