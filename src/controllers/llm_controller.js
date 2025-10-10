@@ -1,18 +1,69 @@
 const { pool } = require("../config/database");
+const axios = require('axios');
+
+const getOpenAIApiKey = async () => {
+  try {
+    const result = await pool.query(
+      "SELECT api_key FROM keys WHERE api_key IS NOT NULL LIMIT 1"
+    );
+    if (result.rows.length === 0) {
+      throw new Error("No OpenAI API key found in database");
+    }
+    return result.rows[0].api_key;
+  } catch (error) {
+    console.error("Error fetching OpenAI API key:", error);
+    throw error;
+  }
+};
+
+// Initialize OpenAI client
+const initializeOpenAI = async () => {
+  const apiKey = await getOpenAIApiKey();
+  return new OpenAI({ apiKey });
+};
 
 // Utility to validate model name
-const validateModelName = (modelName) => {
-  if (
-    !modelName ||
-    typeof modelName !== "string" ||
-    modelName.trim().length === 0
-  ) {
+const validateModelName = async (modelName) => {
+  // Step 1: Basic checks
+  if (!modelName || typeof modelName !== "string" || modelName.trim().length === 0) {
     return {
       isValid: false,
       message: "Model name is required and must be a non-empty string",
     };
   }
-  return { isValid: true };
+
+  // Step 2: Optional pattern check (avoid malformed input)
+  const pattern = /^[a-zA-Z0-9._-]+$/; // only alphanumerics, ., _, -
+  if (!pattern.test(modelName)) {
+    return {
+      isValid: false,
+      message: "Model name contains invalid characters",
+    };
+  }
+
+  // Step 3: Verify with OpenAI API
+  try {
+    const response = await axios.get(`https://api.openai.com/v1/models/${modelName}`, {
+      headers: {
+        Authorization: `Bearer ${await getOpenAIApiKey()}`,
+      },
+    });
+
+    if (response.status === 200) {
+      return { isValid: true, message: "Valid OpenAI model" };
+    }
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return { isValid: false, message: "Model does not exist in OpenAI" };
+    }
+    return {
+      isValid: false,
+      message: "Error validating model with OpenAI",
+      details: error.message,
+    };
+  }
+
+  return { isValid: false, message: "Unexpected validation result" };
 };
 
 // Utility to validate level
@@ -31,7 +82,7 @@ const addModel = async (req, res) => {
   const { model_name, description, is_active = true } = req.body;
 
   try {
-    const validation = validateModelName(model_name);
+    const validation = await validateModelName(model_name);
     if (!validation.isValid) {
       return res.status(400).json({
         success: false,
@@ -91,7 +142,7 @@ const updateModel = async (req, res) => {
   try {
     if (model_name) {
       model_name = model_name.trim();
-      const validation = validateModelName(model_name);
+      const validation = await validateModelName(model_name);
       if (!validation.isValid) {
         return res.status(400).json({
           success: false,
