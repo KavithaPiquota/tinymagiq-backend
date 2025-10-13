@@ -43,7 +43,24 @@ router.get(
   restrictTo("mentor", "orgadmin"),
   podUsersController.getOrguserDetailsByUserId
 );
-// Get unaasigned user
+
+// NEW: Get all batches a user is assigned to
+router.get(
+  "/user/:user_id/batches",
+  authMiddleware,
+  restrictTo("superadmin", "orgadmin", "mentor"),
+  podUsersController.getUserBatches
+);
+
+// NEW: Remove user from a specific batch
+router.delete(
+  "/user/:user_id/batch/:batch_id",
+  authMiddleware,
+  restrictTo("superadmin"),
+  podUsersController.removeUserFromBatch
+);
+
+// Get unassigned users
 router.get(
   "/unassigned/:organization_identifier",
   authMiddleware,
