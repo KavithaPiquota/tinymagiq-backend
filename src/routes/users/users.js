@@ -5,7 +5,7 @@ const authMiddleware = require("../../middleware/auth");
 const { restrictTo } = require("../../middleware/rbac");
  
 // Public route
-router.post("/backfillEmailHash", usersController.backfillEmailHash);
+//router.post("/backfillEmailHash", usersController.backfillEmailHash);
 router.post("/login", usersController.loginUser);
 router.post("/forgot-password", usersController.forgotPassword);
 router.post("/verify-otp", usersController.verifyOtp);

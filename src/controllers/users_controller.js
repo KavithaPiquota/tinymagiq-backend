@@ -588,17 +588,17 @@ const changePassword = async (req, res) => {
 const MAX_LOGIN_ATTEMPTS = 3;
 const LOCKOUT_DURATION_MINUTES = 10;
 
-  const backfillEmailHash = async () => {
-    const users = await pool.query('SELECT user_id, email FROM users WHERE email_hash IS NULL OR email_hash = \'\'');
+  // const backfillEmailHash = async () => {
+  //   const users = await pool.query('SELECT user_id, email FROM users WHERE email_hash IS NULL OR email_hash = \'\'');
  
-    for (const user of users.rows) {
-      if (!user.email) continue;
-      const hash = crypto.createHash('md5').update(user.email.trim().toLowerCase()).digest('hex');
-      await pool.query('UPDATE users SET email_hash = $1 WHERE user_id = $2', [hash, user.user_id]);
-    console.log(`Updated user_id ${user.user_id} with hash ${hash}`);
-   }   
-   console.log('✅ Backfill completed');
-  }
+  //   for (const user of users.rows) {
+  //     if (!user.email) continue;
+  //     const hash = crypto.createHash('md5').update(user.email.trim().toLowerCase()).digest('hex');
+  //     await pool.query('UPDATE users SET email_hash = $1 WHERE user_id = $2', [hash, user.user_id]);
+  //   console.log(`Updated user_id ${user.user_id} with hash ${hash}`);
+  //  }   
+  //  console.log('✅ Backfill completed');
+  // }
 
 const loginUser = async (req, res) => {
   const { identifier, password } = req.body;
@@ -1007,7 +1007,7 @@ module.exports = {
   addOrguser,
   updateUser,
   loginUser,
-  backfillEmailHash,
+  //backfillEmailHash,
   logoutUser,
   verifyUser,
   getAllUsers,
