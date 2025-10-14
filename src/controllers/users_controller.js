@@ -1,16 +1,84 @@
+const crypto = require("crypto");
 const { pool } = require("../config/database");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
-const sgMail = require("@sendgrid/mail");
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+/* ============================
+   Microsoft Graph mail helpers
+   ============================ */
 
+// Read either MS_* or your OFFICE365MAIL_*/MAIL_FROM_ADDRESS names (no other changes)
+const TENANT_ID     = process.env.MS_TENANT_ID     || process.env.OFFICE365MAIL_TENANT;
+const CLIENT_ID     = process.env.MS_CLIENT_ID     || process.env.OFFICE365MAIL_CLIENT_ID;
+const CLIENT_SECRET = process.env.MS_CLIENT_SECRET || process.env.OFFICE365MAIL_CLIENT_SECRET;
+const SENDER        = process.env.MS_SENDER        || process.env.MAIL_FROM_ADDRESS;
+
+// Uses Node 18+ native fetch. If you're on older Node, install node-fetch and require it.
+const tokenEndpoint = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
+
+async function getGraphAccessToken() {
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    scope: "https://graph.microsoft.com/.default",
+    grant_type: "client_credentials",
+  });
+
+  const resp = await fetch(tokenEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params,
+  });
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    throw new Error(
+      `Graph token error: ${resp.status} ${data.error_description || JSON.stringify(data)}`
+    );
+  }
+  return data.access_token;
+}
+
+async function sendMailViaGraph({ to, subject, html, text }) {
+  const accessToken = await getGraphAccessToken();
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(SENDER)}/sendMail`;
+
+  const body = {
+    message: {
+      subject,
+      body: {
+        contentType: html ? "HTML" : "Text",
+        content: html || text || "",
+      },
+      toRecipients: [{ emailAddress: { address: to } }],
+    },
+    saveToSentItems: "false",
+  };
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Graph sendMail failed: ${resp.status} ${errText}`);
+  }
+}
+
+/* ============ end Graph helpers ============ */
+
+const generateHashKey = (inputString) => {
+  return crypto.createHash("md5").update(String(inputString).trim().toLowerCase()).digest("hex");
+};
 
 const checkUsernameExists = async (username) => {
-  const result = await pool.query("SELECT 1 FROM users WHERE username = $1", [
-    username,
-  ]);
+  const result = await pool.query("SELECT 1 FROM users WHERE username = $1", [username]);
   return result.rows.length > 0;
 };
 
@@ -27,31 +95,24 @@ const generateUsername = async () => {
 const getOrganizationIdByName = async (organization_name) => {
   if (!organization_name) return null;
   const trimmedOrgName = organization_name.trim();
-  console.log(
-    `getOrganizationIdByName: Input organization_name: '${organization_name}', trimmed: '${trimmedOrgName}', length: ${trimmedOrgName.length}, hex: ${Buffer.from(trimmedOrgName).toString("hex")}`
-  );
   const result = await pool.query(
     "SELECT organization_id, organization_name FROM organizations WHERE organization_name = $1",
     [trimmedOrgName]
   );
   if (result.rows.length === 0) {
-    console.log(`No organization found for name: '${trimmedOrgName}'`);
-    const allOrgs = await pool.query(
-      "SELECT organization_name FROM organizations"
-    );
+    const allOrgs = await pool.query("SELECT organization_name FROM organizations");
     console.log(
-      `Available organizations: ${JSON.stringify(allOrgs.rows.map((row) => row.organization_name))}`
+      `No organization found for '${trimmedOrgName}'. Available: ${JSON.stringify(
+        allOrgs.rows.map((row) => row.organization_name)
+      )}`
     );
     throw new Error("Organization not found");
   }
-  console.log(`Found organization: ${JSON.stringify(result.rows[0])}`);
   return result.rows[0].organization_id;
 };
 
 const getRoleIdByName = async (role_name) => {
-  const result = await pool.query("SELECT role_id FROM roles WHERE role = $1", [
-    role_name,
-  ]);
+  const result = await pool.query("SELECT role_id FROM roles WHERE role = $1", [role_name]);
   if (result.rows.length === 0) {
     throw new Error("Role not found");
   }
@@ -66,37 +127,12 @@ const validatePassword = (password) => {
   const hasNumber = /[0-9]/.test(password);
   const hasSpecialChar = /[!@#$%^&*?]/.test(password);
 
-  if (!minLength) {
-    return {
-      isValid: false,
-      message: "Password must be at least 8 characters long",
-    };
-  }
-  if (!hasUppercase) {
-    return {
-      isValid: false,
-      message: "Password must contain at least one uppercase letter",
-    };
-  }
-  if (!hasLowercase) {
-    return {
-      isValid: false,
-      message: "Password must contain at least one lowercase letter",
-    };
-  }
-  if (!hasNumber) {
-    return {
-      isValid: false,
-      message: "Password must contain at least one number",
-    };
-  }
-  if (!hasSpecialChar) {
-    return {
-      isValid: false,
-      message:
-        "Password must contain at least one special character (!@#$%^&*?)",
-    };
-  }
+  if (!minLength) return { isValid: false, message: "Password must be at least 8 characters long" };
+  if (!hasUppercase) return { isValid: false, message: "Password must contain at least one uppercase letter" };
+  if (!hasLowercase) return { isValid: false, message: "Password must contain at least one lowercase letter" };
+  if (!hasNumber) return { isValid: false, message: "Password must contain at least one number" };
+  if (!hasSpecialChar)
+    return { isValid: false, message: "Password must contain at least one special character (!@#$%^&*?)" };
   return { isValid: true };
 };
 
@@ -125,8 +161,7 @@ const addUser = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message:
-          "Email, first name, last name, and password are required for non-orguser roles",
+        message: "Email, first name, last name, and password are required for non-orguser roles",
       });
     }
   }
@@ -164,10 +199,8 @@ const addUser = async (req, res) => {
     }
 
     if (email) {
-      const emailExists = await pool.query(
-        "SELECT 1 FROM users WHERE email = $1",
-        [email]
-      );
+      const email_hash = generateHashKey(email);
+      const emailExists = await pool.query("SELECT 1 FROM users WHERE email_hash = $1", [email_hash]);
       if (emailExists.rows.length > 0) {
         return res.status(409).json({
           success: false,
@@ -191,7 +224,7 @@ const addUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      "INSERT INTO users (role_id, organization_id, email, username, first_name, last_name, password, is_active, is_default_password, session_token_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+      "INSERT INTO users (role_id, organization_id, email, username, first_name, last_name, password, is_active, is_default_password, session_token_version, email_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
       [
         role_id,
         organization_id,
@@ -203,6 +236,7 @@ const addUser = async (req, res) => {
         is_active,
         is_default_password,
         0, // Initial session_token_version
+        email ? generateHashKey(email) : null,
       ]
     );
     res.status(201).json({
@@ -212,18 +246,10 @@ const addUser = async (req, res) => {
     });
   } catch (error) {
     if (error.message === "Organization not found") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Organization not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Organization not found" });
     }
     if (error.message === "Role not found") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Role not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Role not found" });
     }
     if (error.code === "23505") {
       return res.status(409).json({
@@ -233,30 +259,15 @@ const addUser = async (req, res) => {
       });
     }
     if (error.code === "P0001") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: error.message,
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: error.message });
     }
     console.error("Error creating user:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
 const addSuperadmin = async (req, res) => {
-  const {
-    email,
-    username,
-    first_name,
-    last_name,
-    password,
-    is_active = true,
-  } = req.body;
+  const { email, username, first_name, last_name, password, is_active = true } = req.body;
   if (!email || !password) {
     return res.status(400).json({
       success: false,
@@ -266,11 +277,7 @@ const addSuperadmin = async (req, res) => {
   }
   const passwordValidation = validatePassword(password);
   if (!passwordValidation.isValid) {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: passwordValidation.message,
-    });
+    return res.status(400).json({ success: false, error: "Bad request", message: passwordValidation.message });
   }
   if (password === "Tiny@Pass123") {
     return res.status(400).json({
@@ -280,39 +287,21 @@ const addSuperadmin = async (req, res) => {
     });
   }
   try {
-    const roleResult = await pool.query(
-      "SELECT role_id FROM roles WHERE role = $1",
-      ["superadmin"]
-    );
+    const roleResult = await pool.query("SELECT role_id FROM roles WHERE role = $1", ["superadmin"]);
     if (roleResult.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Superadmin role not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Superadmin role not found" });
     }
     req.body.role_name = "superadmin";
     req.body.organization_name = null;
     return await addUser(req, res);
   } catch (error) {
     console.error("Error creating superadmin:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
 const addMentor = async (req, res) => {
-  const {
-    email,
-    username,
-    first_name,
-    last_name,
-    password,
-    is_active = true,
-  } = req.body;
+  const { email, username, first_name, last_name, password, is_active = true } = req.body;
   if (!email || !password) {
     return res.status(400).json({
       success: false,
@@ -322,11 +311,7 @@ const addMentor = async (req, res) => {
   }
   const passwordValidation = validatePassword(password);
   if (!passwordValidation.isValid) {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: passwordValidation.message,
-    });
+    return res.status(400).json({ success: false, error: "Bad request", message: passwordValidation.message });
   }
   if (password === "Tiny@Pass123") {
     return res.status(400).json({
@@ -336,55 +321,31 @@ const addMentor = async (req, res) => {
     });
   }
   try {
-    const roleResult = await pool.query(
-      "SELECT role_id FROM roles WHERE role = $1",
-      ["mentor"]
-    );
+    const roleResult = await pool.query("SELECT role_id FROM roles WHERE role = $1", ["mentor"]);
     if (roleResult.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Mentor role not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Mentor role not found" });
     }
     req.body.role_name = "mentor";
     req.body.organization_name = null;
     return await addUser(req, res);
   } catch (error) {
     console.error("Error creating mentor:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
 const addOrgadmin = async (req, res) => {
-  const {
-    organization_name,
-    email,
-    username,
-    first_name,
-    last_name,
-    password,
-    is_active = true,
-  } = req.body;
+  const { organization_name, email, username, first_name, last_name, password, is_active = true } = req.body;
   if (!organization_name || !email || !password) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message:
-        "Organization name, email, and password are required for orgadmin",
+      message: "Organization name, email, and password are required for orgadmin",
     });
   }
   const passwordValidation = validatePassword(password);
   if (!passwordValidation.isValid) {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: passwordValidation.message,
-    });
+    return res.status(400).json({ success: false, error: "Bad request", message: passwordValidation.message });
   }
   if (password === "Tiny@Pass123") {
     return res.status(400).json({
@@ -394,101 +355,56 @@ const addOrgadmin = async (req, res) => {
     });
   }
   try {
-    const roleResult = await pool.query(
-      "SELECT role_id FROM roles WHERE role = $1",
-      ["orgadmin"]
-    );
+    const roleResult = await pool.query("SELECT role_id FROM roles WHERE role = $1", ["orgadmin"]);
     if (roleResult.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Orgadmin role not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Orgadmin role not found" });
     }
     req.body.role_name = "orgadmin";
     return await addUser(req, res);
   } catch (error) {
     console.error("Error creating orgadmin:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
 const addOrguser = async (req, res) => {
-  const {
-    organization_name,
-    email,
-    username,
-    first_name,
-    last_name,
-    password,
-    is_active = true,
-  } = req.body;
+  const { organization_name, email, username, first_name, last_name, password, is_active = true } = req.body;
   if (!organization_name || !first_name || !last_name) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message:
-        "Organization name, first name, and last name are required for orguser",
+      message: "Organization name, first name, and last name are required for orguser",
     });
   }
   if (password) {
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: passwordValidation.message,
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: passwordValidation.message });
     }
     if (password === "Tiny@Pass123") {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message:
-          "The password 'Tiny@Pass123' is not allowed as a custom password for orguser",
+        message: "The password 'Tiny@Pass123' is not allowed as a custom password for orguser",
       });
     }
   }
   try {
-    const roleResult = await pool.query(
-      "SELECT role_id FROM roles WHERE role = $1",
-      ["orguser"]
-    );
+    const roleResult = await pool.query("SELECT role_id FROM roles WHERE role = $1", ["orguser"]);
     if (roleResult.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Orguser role not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Orguser role not found" });
     }
     req.body.role_name = "orguser";
     return await addUser(req, res);
   } catch (error) {
     console.error("Error creating orguser:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
 const updateUser = async (req, res) => {
   const { user_id } = req.params;
-  let {
-    role_name,
-    organization_name,
-    email,
-    username,
-    first_name,
-    last_name,
-    password,
-    is_active,
-  } = req.body;
+  let { role_name, organization_name, email, username, first_name, last_name, password, is_active } = req.body;
 
   if (
     !role_name &&
@@ -509,50 +425,29 @@ const updateUser = async (req, res) => {
   if (password) {
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: passwordValidation.message,
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: passwordValidation.message });
     }
     if (password === "Tiny@Pass123") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "The password 'Tiny@Pass123' is not allowed",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "The password 'Tiny@Pass123' is not allowed" });
     }
   }
 
   try {
     if (username && (await checkUsernameExists(username))) {
-      const currentUser = await pool.query(
-        "SELECT username FROM users WHERE user_id = $1",
-        [user_id]
-      );
-      if (
-        currentUser.rows.length > 0 &&
-        currentUser.rows[0].username !== username
-      ) {
-        return res.status(409).json({
-          success: false,
-          error: "Conflict",
-          message: "Username already exists",
-        });
+      const currentUser = await pool.query("SELECT username FROM users WHERE user_id = $1", [user_id]);
+      if (currentUser.rows.length > 0 && currentUser.rows[0].username !== username) {
+        return res.status(409).json({ success: false, error: "Conflict", message: "Username already exists" });
       }
     }
 
     if (email) {
+      const email_hash = generateHashKey(email);
       const emailExists = await pool.query(
-        "SELECT email FROM users WHERE user_id != $1 AND email = $2",
-        [user_id, email]
+        "SELECT email_hash FROM users WHERE user_id != $1 AND email_hash = $2",
+        [user_id, email_hash]
       );
       if (emailExists.rows.length > 0) {
-        return res.status(409).json({
-          success: false,
-          error: "Conflict",
-          message: "Email already exists",
-        });
+        return res.status(409).json({ success: false, error: "Conflict", message: "Email already exists" });
       }
     }
 
@@ -571,8 +466,8 @@ const updateUser = async (req, res) => {
       values.push(organization_id);
     }
     if (email !== undefined) {
-      fields.push(`email = $${index++}`);
-      values.push(email || null);
+      fields.push(`email_hash = $${index++}`);
+      values.push(email ? generateHashKey(email) : null);
     }
     if (username) {
       fields.push(`username = $${index++}`);
@@ -604,53 +499,25 @@ const updateUser = async (req, res) => {
     const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Not found",
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "Not found", message: "User not found" });
     }
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: "User updated successfully",
-    });
+    res.json({ success: true, data: result.rows[0], message: "User updated successfully" });
   } catch (error) {
     if (error.message === "Organization not found") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Organization not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Organization not found" });
     }
     if (error.message === "Role not found") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "Role not found",
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: "Role not found" });
     }
     if (error.code === "23505") {
-      return res.status(409).json({
-        success: false,
-        error: "Conflict",
-        message: "Email or username already exists",
-      });
+      return res.status(409).json({ success: false, error: "Conflict", message: "Email or username already exists" });
     }
     if (error.code === "P0001") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: error.message,
-      });
+      return res.status(400).json({ success: false, error: "Bad request", message: error.message });
     }
     console.error("Error updating user:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
@@ -668,86 +535,70 @@ const changePassword = async (req, res) => {
 
   const passwordValidation = validatePassword(newPassword);
   if (!passwordValidation.isValid) {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: passwordValidation.message,
-    });
+    return res.status(400).json({ success: false, error: "Bad request", message: passwordValidation.message });
   }
   if (newPassword === "Tiny@Pass123") {
-    return res.status(400).json({
-      success: false,
-      error: "Bad request",
-      message: "The password 'Tiny@Pass123' is not allowed",
-    });
+    return res.status(400).json({ success: false, error: "Bad request", message: "The password 'Tiny@Pass123' is not allowed" });
   }
 
   try {
-    // Fetch user to verify current password
     const userResult = await pool.query(
       "SELECT password, role_id, is_default_password, session_token_version FROM users WHERE user_id = $1",
       [userId]
     );
 
     if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Not found",
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "Not found", message: "User not found" });
     }
 
     const user = userResult.rows[0];
     const passwordMatch = await bcrypt.compare(currentPassword, user.password);
     if (!passwordMatch) {
-      return res.status(401).json({
-        success: false,
-        error: "Unauthorized",
-        message: "Current password is incorrect",
-      });
+      return res.status(401).json({ success: false, error: "Unauthorized", message: "Current password is incorrect" });
     }
 
-    // Hash new password
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update password, is_default_password, and increment session_token_version
     const updateResult = await pool.query(
-      "UPDATE users SET password = $1, is_default_password = $2, session_token_version = session_token_version + 1 WHERE user_id = $3 RETURNING user_id, email, username",
+      "UPDATE users SET password = $1, is_default_password = $2, session_token_version = session_token_version + 1 WHERE user_id = $3 RETURNING user_id, email_hash, username",
       [hashedNewPassword, false, userId]
     );
 
     if (updateResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Not found",
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "Not found", message: "User not found" });
     }
 
-    console.log(
-      `[${new Date().toISOString()}] Password changed for user_id: ${userId}, email: ${updateResult.rows[0].email}`
-    );
+    console.log(`[${new Date().toISOString()}] Password changed for user_id: ${userId}`);
     return res.status(200).json({
       success: true,
       data: {
         user_id: updateResult.rows[0].user_id,
-        email: updateResult.rows[0].email,
+        email_hash: updateResult.rows[0].email_hash,
         username: updateResult.rows[0].username,
       },
       message: "Password changed successfully. Please log in again.",
     });
   } catch (error) {
     console.error("Error changing password:", error);
-    return res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    return res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
+
 // Maximum login attempts and lockout duration
 const MAX_LOGIN_ATTEMPTS = 3;
 const LOCKOUT_DURATION_MINUTES = 10;
+
+  const backfillEmailHash = async () => {
+    const users = await pool.query('SELECT user_id, email FROM users WHERE email_hash IS NULL OR email_hash = \'\'');
+ 
+    for (const user of users.rows) {
+      if (!user.email) continue;
+      const hash = crypto.createHash('md5').update(user.email.trim().toLowerCase()).digest('hex');
+      await pool.query('UPDATE users SET email_hash = $1 WHERE user_id = $2', [hash, user.user_id]);
+    console.log(`Updated user_id ${user.user_id} with hash ${hash}`);
+   }   
+   console.log('✅ Backfill completed');
+  }
 
 const loginUser = async (req, res) => {
   const { identifier, password } = req.body;
@@ -761,48 +612,46 @@ const loginUser = async (req, res) => {
   }
 
   try {
-    // Check for lockout or failed attempts
+    const identifierHash = generateHashKey(identifier);
+
+    // Pre-check lockout
     let failedAttempts = 0;
     const userCheck = await pool.query(
-      "SELECT user_id, failed_login_attempts, lockout_until FROM users WHERE email = $1 OR username = $1",
-      [identifier]
+      "SELECT user_id, failed_login_attempts, lockout_until FROM users WHERE email_hash = $1 OR username = $2",
+      [identifierHash, identifier]
     );
 
     if (userCheck.rows.length > 0) {
-      const { user_id, failed_login_attempts, lockout_until } =
-        userCheck.rows[0];
+      const { user_id, failed_login_attempts, lockout_until } = userCheck.rows[0];
       failedAttempts = failed_login_attempts;
 
       if (lockout_until && new Date(lockout_until) > new Date()) {
-        const minutesLeft = Math.ceil(
-          (new Date(lockout_until) - new Date()) / 60000
-        );
+        const minutesLeft = Math.ceil((new Date(lockout_until) - new Date()) / 60000);
         return res.status(429).json({
           success: false,
           error: "Too many requests",
           message: `Account is locked. Try again in ${minutesLeft} minute(s).`,
         });
       } else if (lockout_until && new Date(lockout_until) <= new Date()) {
-        // Lockout expired, reset attempts and lockout
-        await pool.query(
-          "UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1",
-          [user_id]
-        );
+        await pool.query("UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE user_id = $1", [
+          user_id,
+        ]);
         failedAttempts = 0;
       }
     }
 
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, o.is_active AS org_is_active, u.email, u.username, u.password, u.is_active, u.is_default_password, u.failed_login_attempts, u.session_token_version " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, " +
+        "o.is_active AS org_is_active, u.email_hash, u.username, u.password, u.is_active, " +
+        "u.is_default_password, u.failed_login_attempts, u.session_token_version, u.first_name, u.last_name " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
-        "WHERE u.email = $1 OR u.username = $1",
-      [identifier]
+        "WHERE u.email_hash = $1 OR u.username = $2",
+      [identifierHash, identifier]
     );
 
     if (result.rows.length === 0) {
-      // Simulate attempt tracking for non-existent users to prevent enumeration
       const remainingAttempts = MAX_LOGIN_ATTEMPTS - (failedAttempts + 1);
       return res.status(401).json({
         success: false,
@@ -814,35 +663,25 @@ const loginUser = async (req, res) => {
     const user = result.rows[0];
 
     if (!user.is_active) {
-      return res.status(403).json({
-        success: false,
-        error: "Forbidden",
-        message: "Account is inactive",
-      });
+      return res.status(403).json({ success: false, error: "Forbidden", message: "Account is inactive" });
     }
 
     if (user.organization_id !== null && !user.org_is_active) {
-      return res.status(403).json({
-        success: false,
-        error: "Forbidden",
-        message: "Organization is inactive",
-      });
+      return res.status(403).json({ success: false, error: "Forbidden", message: "Organization is inactive" });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
-      // Increment failed attempts
       const newAttempts = user.failed_login_attempts + 1;
       let lockoutUntil = null;
 
       if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
-        lockoutUntil = new Date(
-          Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000
-        );
-        await pool.query(
-          "UPDATE users SET failed_login_attempts = $1, lockout_until = $2 WHERE user_id = $3",
-          [newAttempts, lockoutUntil, user.user_id]
-        );
+        lockoutUntil = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
+        await pool.query("UPDATE users SET failed_login_attempts = $1, lockout_until = $2 WHERE user_id = $3", [
+          newAttempts,
+          lockoutUntil,
+          user.user_id,
+        ]);
         return res.status(429).json({
           success: false,
           error: "Too many requests",
@@ -850,10 +689,10 @@ const loginUser = async (req, res) => {
         });
       }
 
-      await pool.query(
-        "UPDATE users SET failed_login_attempts = $1 WHERE user_id = $2",
-        [newAttempts, user.user_id]
-      );
+      await pool.query("UPDATE users SET failed_login_attempts = $1 WHERE user_id = $2", [
+        newAttempts,
+        user.user_id,
+      ]);
 
       const remainingAttempts = MAX_LOGIN_ATTEMPTS - newAttempts;
       return res.status(401).json({
@@ -863,24 +702,19 @@ const loginUser = async (req, res) => {
       });
     }
 
-    // Reset failed attempts and lockout, increment session_token_version
     await pool.query(
       "UPDATE users SET failed_login_attempts = 0, lockout_until = NULL, session_token_version = session_token_version + 1 WHERE user_id = $1",
       [user.user_id]
     );
 
-    // Fetch updated session_token_version
-    const updatedUser = await pool.query(
-      "SELECT session_token_version FROM users WHERE user_id = $1",
-      [user.user_id]
-    );
+    const updatedUser = await pool.query("SELECT session_token_version FROM users WHERE user_id = $1", [user.user_id]);
     const sessionTokenVersion = updatedUser.rows[0].session_token_version;
 
     const token = jwt.sign(
       {
         user_id: user.user_id,
         role: user.role,
-        email: user.email,
+        email_hash: user.email_hash,
         username: user.username,
         session_token_version: sessionTokenVersion,
       },
@@ -888,53 +722,36 @@ const loginUser = async (req, res) => {
       { expiresIn: "4h" }
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         user_id: user.user_id,
         role: user.role,
         organization_name: user.organization_name,
-        email: user.email,
+        email_hash: user.email_hash,
         username: user.username,
         first_name: user.first_name,
         last_name: user.last_name,
         is_active: user.is_active,
-        is_default_password:
-          user.role === "orguser" ? user.is_default_password : false,
+        is_default_password: user.role === "orguser" ? user.is_default_password : false,
         token,
       },
       message: "Login successful",
     });
   } catch (error) {
     console.error("Error logging in user:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    return res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
+
 const logoutUser = async (req, res) => {
   const userId = req.user.user_id; // From authMiddleware
-
   try {
-    // Increment session_token_version to invalidate current token
-    await pool.query(
-      "UPDATE users SET session_token_version = session_token_version + 1 WHERE user_id = $1",
-      [userId]
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "Logged out successfully",
-    });
+    await pool.query("UPDATE users SET session_token_version = session_token_version + 1 WHERE user_id = $1", [userId]);
+    res.status(200).json({ success: true, message: "Logged out successfully" });
   } catch (error) {
     console.error("Error logging out user:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
@@ -942,7 +759,7 @@ const verifyUser = async (req, res) => {
   try {
     const user = req.user; // From authMiddleware
     const result = await pool.query(
-      "SELECT u.user_id, r.role, u.email, u.username, u.is_active, u.session_token_version " +
+      "SELECT u.user_id, r.role, u.email_hash, u.username, u.first_name, u.is_active, u.session_token_version " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "WHERE u.user_id = $1",
@@ -950,11 +767,7 @@ const verifyUser = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Not found",
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "Not found", message: "User not found" });
     }
 
     const dbUser = result.rows[0];
@@ -971,43 +784,32 @@ const verifyUser = async (req, res) => {
       data: {
         user_id: dbUser.user_id,
         role: dbUser.role,
-        email: dbUser.email,
+        email_hash: dbUser.email_hash,
         username: dbUser.username,
+         first_name: dbUser.first_name,
         is_active: dbUser.is_active,
       },
       message: "User verified successfully",
     });
   } catch (error) {
     console.error("Error verifying user:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
 const getAllUsers = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email, u.username, u.first_name, u.last_name, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email_hash, u.username, u.first_name, u.last_name, u.is_active " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
         "ORDER BY u.user_id"
     );
-    res.json({
-      success: true,
-      data: result.rows,
-      message: "Users fetched successfully",
-    });
+  res.json({ success: true, data: result.rows, message: "Users fetched successfully" });
   } catch (error) {
     console.error("Error fetching users:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
@@ -1015,7 +817,7 @@ const getUserById = async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email, u.username, u.first_name, u.last_name, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email_hash, u.username, u.first_name, u.last_name, u.is_active " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -1023,24 +825,12 @@ const getUserById = async (req, res) => {
       [user_id]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Not found",
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "Not found", message: "User not found" });
     }
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: "User fetched successfully",
-    });
+    res.json({ success: true, data: result.rows[0], message: "User fetched successfully" });
   } catch (error) {
     console.error("Error fetching user by ID:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
@@ -1048,7 +838,7 @@ const getUserByEmailOrUsername = async (req, res) => {
   const { identifier } = req.params;
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email, u.username, u.first_name, u.last_name, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email_hash, u.username, u.first_name, u.last_name, u.is_active " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -1056,24 +846,12 @@ const getUserByEmailOrUsername = async (req, res) => {
       [identifier]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Not found",
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, error: "Not found", message: "User not found" });
     }
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: "User fetched successfully",
-    });
+    res.json({ success: true, data: result.rows[0], message: "User fetched successfully" });
   } catch (error) {
     console.error("Error fetching user:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
@@ -1081,7 +859,7 @@ const getUsersByRole = async (req, res) => {
   const { role_name } = req.params;
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email, u.username, u.first_name, u.last_name, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email_hash, u.username, u.first_name, u.last_name, u.is_active " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "LEFT JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -1089,18 +867,10 @@ const getUsersByRole = async (req, res) => {
         "ORDER BY u.user_id",
       [role_name]
     );
-    res.json({
-      success: true,
-      data: result.rows,
-      message: `Users with role ${role_name} fetched successfully`,
-    });
+    res.json({ success: true, data: result.rows, message: `Users with role ${role_name} fetched successfully` });
   } catch (error) {
     console.error("Error fetching users by role:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
 
@@ -1108,7 +878,7 @@ const getUsersByOrganization = async (req, res) => {
   const { organization_name } = req.params;
   try {
     const result = await pool.query(
-      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email, u.username, u.first_name, u.last_name, u.is_active " +
+      "SELECT u.user_id, u.role_id, r.role, u.organization_id, o.organization_name, u.email_hash, u.username, u.first_name, u.last_name, u.is_active " +
         "FROM users u " +
         "JOIN roles r ON u.role_id = r.role_id " +
         "JOIN organizations o ON u.organization_id = o.organization_id " +
@@ -1123,13 +893,10 @@ const getUsersByOrganization = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching users by organization:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      message: error.message,
-    });
+    res.status(500).json({ success: false, error: "Internal server error", message: error.message });
   }
 };
+
 const forgotPassword = async (req, res) => {
   const { email } = req.body;
   if (!email) {
@@ -1137,28 +904,26 @@ const forgotPassword = async (req, res) => {
   }
 
   try {
-    const result = await pool.query("SELECT user_id FROM users WHERE email = $1", [email]);
+    const email_hash = generateHashKey(email);
+    const result = await pool.query("SELECT user_id FROM users WHERE email_hash = $1", [email_hash]);
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = new Date(Date.now() + 5 * 60 * 1000); // OTP valid for 5 minutes
+    const expiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    await pool.query(
-      "UPDATE users SET reset_otp = $1, reset_otp_expiry = $2 WHERE email = $3",
-      [otp, expiry, email]
-    );
+    // CHANGED: update by email_hash (not raw email)
+    await pool.query("UPDATE users SET reset_otp = $1, reset_otp_expiry = $2 WHERE email_hash = $3", [
+      otp,
+      expiry,
+      email_hash,
+    ]);
 
-    const msg = {
-      to: email,
-      from: process.env.SENDGRID_FROM, // must be verified in SendGrid
-      subject: "Password Reset OTP",
-      text: `Your OTP is ${otp}. It will expire in 5 minutes.`,
-      html: `<p>Your OTP is <strong>${otp}</strong>. It will expire in 5 minutes.</p>`,
-    };
-
-    await sgMail.send(msg);
+    // CHANGED: Send via Microsoft Graph (removed SendGrid)
+    const subject = "Password Reset OTP";
+    const html = `<p>Your OTP is <strong>${otp}</strong>. It will expire in 5 minutes.</p>`;
+    await sendMailViaGraph({ to: email, subject, html, text: `Your OTP is ${otp}. It will expire in 5 minutes.` });
 
     res.json({ success: true, message: "OTP sent to your email" });
   } catch (err) {
@@ -1167,7 +932,6 @@ const forgotPassword = async (req, res) => {
   }
 };
 
-
 const verifyOtp = async (req, res) => {
   const { email, otp } = req.body;
   if (!email || !otp) {
@@ -1175,10 +939,9 @@ const verifyOtp = async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      "SELECT reset_otp, reset_otp_expiry FROM users WHERE email = $1",
-      [email]
-    );
+    const result = await pool.query("SELECT reset_otp, reset_otp_expiry FROM users WHERE email_hash = $1", [
+      generateHashKey(email),
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -1195,6 +958,7 @@ const verifyOtp = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 const resetPassword = async (req, res) => {
   const { email, otp, newPassword } = req.body;
   if (!email || !otp || !newPassword) {
@@ -1207,10 +971,10 @@ const resetPassword = async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      "SELECT reset_otp, reset_otp_expiry FROM users WHERE email = $1",
-      [email]
-    );
+    // CHANGED: select by email_hash (not raw email)
+    const result = await pool.query("SELECT reset_otp, reset_otp_expiry FROM users WHERE email_hash = $1", [
+      generateHashKey(email),
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -1224,8 +988,8 @@ const resetPassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     await pool.query(
-      "UPDATE users SET password = $1, reset_otp = NULL, reset_otp_expiry = NULL, session_token_version = session_token_version + 1 WHERE email = $2",
-      [hashedPassword, email]
+      "UPDATE users SET password = $1, reset_otp = NULL, reset_otp_expiry = NULL, session_token_version = session_token_version + 1 WHERE email_hash = $2",
+      [hashedPassword, generateHashKey(email)]
     );
 
     res.json({ success: true, message: "Password reset successfully" });
@@ -1235,7 +999,6 @@ const resetPassword = async (req, res) => {
   }
 };
 
-
 module.exports = {
   addUser,
   addSuperadmin,
@@ -1244,6 +1007,7 @@ module.exports = {
   addOrguser,
   updateUser,
   loginUser,
+  backfillEmailHash,
   logoutUser,
   verifyUser,
   getAllUsers,

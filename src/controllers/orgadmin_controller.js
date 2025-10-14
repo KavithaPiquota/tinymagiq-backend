@@ -1,12 +1,12 @@
 const { pool } = require("../config/database");
 
-const getOrgadminDetails = async (email) => {
+const getOrgadminDetails = async (username) => {
   const result = await pool.query(
     "SELECT u.user_id, u.organization_id, o.organization_name " +
       "FROM users u JOIN roles r ON u.role_id = r.role_id " +
       "JOIN organizations o ON u.organization_id = o.organization_id " +
-      "WHERE u.email = $1 AND r.role = $2",
-    [email, "orgadmin"]
+      "WHERE u.username = $1 AND r.role = $2",
+    [username, "orgadmin"]
   );
   if (result.rows.length === 0) {
     throw new Error("Orgadmin not found or not a valid orgadmin");
@@ -15,9 +15,9 @@ const getOrgadminDetails = async (email) => {
 };
 
 const getBatchesByOrgadmin = async (req, res) => {
-  const { email } = req.params;
+  const { username } = req.params;
   try {
-    const orgadmin = await getOrgadminDetails(email);
+    const orgadmin = await getOrgadminDetails(username);
     const batchesResult = await pool.query(
       "SELECT b.batch_id, b.batch_name, b.batch_size, b.is_active, b.created_at, o.organization_name " +
         "FROM batches b JOIN organizations o ON b.organization_id = o.organization_id " +
@@ -74,9 +74,9 @@ const getBatchesByOrgadmin = async (req, res) => {
 };
 
 const getPodsByOrgadmin = async (req, res) => {
-  const { email } = req.params;
+  const { username } = req.params;
   try {
-    const orgadmin = await getOrgadminDetails(email);
+    const orgadmin = await getOrgadminDetails(username);
     const podsResult = await pool.query(
       "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name " +
         "FROM pods p " +
@@ -103,7 +103,7 @@ const getPodsByOrgadmin = async (req, res) => {
 
       // Get mentors from junction table
       const mentorResult = await pool.query(
-        `SELECT u.user_id, u.first_name, u.last_name, u.email 
+        `SELECT u.user_id, u.first_name, u.last_name, u.username 
          FROM pod_mentors pm 
          JOIN users u ON pm.mentor_id = u.user_id 
          JOIN roles r ON u.role_id = r.role_id 
@@ -148,11 +148,11 @@ const getPodsByOrgadmin = async (req, res) => {
 };
 
 const getUsersByOrgadmin = async (req, res) => {
-  const { email } = req.params;
+  const { username } = req.params;
   try {
-    const orgadmin = await getOrgadminDetails(email);
+    const orgadmin = await getOrgadminDetails(username);
     const usersResult = await pool.query(
-      "SELECT u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT u.user_id, u.first_name, u.last_name, u.username " +
         "FROM users u JOIN roles r ON u.role_id = r.role_id " +
         "WHERE u.organization_id = $1 AND r.role = $2",
       [orgadmin.organization_id, "orguser"]
@@ -180,9 +180,9 @@ const getUsersByOrgadmin = async (req, res) => {
 };
 
 const getProgressByOrgadmin = async (req, res) => {
-  const { email } = req.params;
+  const { username } = req.params;
   try {
-    const orgadmin = await getOrgadminDetails(email);
+    const orgadmin = await getOrgadminDetails(username);
     const batchesResult = await pool.query(
       "SELECT b.batch_id, b.batch_name, b.batch_size " +
         "FROM batches b WHERE b.organization_id = $1 AND b.is_active = TRUE",
@@ -211,7 +211,7 @@ const getProgressByOrgadmin = async (req, res) => {
       };
       for (let pod of podsResult.rows) {
         const usersResult = await pool.query(
-          "SELECT u.user_id, u.email, u.first_name, u.last_name " +
+          "SELECT u.user_id, u.username, u.first_name, u.last_name " +
             "FROM pod_users pu JOIN users u ON pu.user_id = u.user_id " +
             "WHERE pu.pod_id = $1",
           [pod.pod_id]
@@ -237,7 +237,7 @@ const getProgressByOrgadmin = async (req, res) => {
               : 0;
           podProgress.users.push({
             user_id: user.user_id,
-            email: user.email,
+            username: user.username,
             first_name: user.first_name,
             last_name: user.last_name,
             completed_concepts: completedConcepts,
@@ -272,14 +272,14 @@ const getProgressByOrgadmin = async (req, res) => {
 };
 
 const getUserProgressByOrgadmin = async (req, res) => {
-  const { email, user_email } = req.params;
+  const { username, user_username } = req.params;
   try {
-    const orgadmin = await getOrgadminDetails(email);
+    const orgadmin = await getOrgadminDetails(username);
     const userResult = await pool.query(
-      "SELECT u.user_id, u.first_name, u.last_name, u.email " +
+      "SELECT u.user_id, u.first_name, u.last_name, u.username " +
         "FROM users u JOIN roles r ON u.role_id = r.role_id " +
-        "WHERE u.email = $1 AND u.organization_id = $2 AND r.role = $3",
-      [user_email, orgadmin.organization_id, "orguser"]
+        "WHERE u.username = $1 AND u.organization_id = $2 AND r.role = $3",
+      [user_username, orgadmin.organization_id, "orguser"]
     );
     if (userResult.rows.length === 0) {
       return res.status(404).json({
@@ -314,7 +314,7 @@ const getUserProgressByOrgadmin = async (req, res) => {
       success: true,
       data: {
         user_id: user.user_id,
-        email: user.email,
+        username: user.username,
         first_name: user.first_name,
         last_name: user.last_name,
         pod: podResult.rows[0]
@@ -330,7 +330,7 @@ const getUserProgressByOrgadmin = async (req, res) => {
         completed_concepts: completedConcepts,
         progress_percentage: progressPercentage,
       },
-      message: `Progress for orguser ${user_email} fetched successfully`,
+      message: `Progress for orguser ${user_username} fetched successfully`,
     });
   } catch (error) {
     if (error.message === "Orgadmin not found or not a valid orgadmin") {

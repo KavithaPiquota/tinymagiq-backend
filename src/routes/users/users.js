@@ -3,8 +3,9 @@ const router = express.Router();
 const usersController = require("../../controllers/users_controller");
 const authMiddleware = require("../../middleware/auth");
 const { restrictTo } = require("../../middleware/rbac");
-
+ 
 // Public route
+router.post("/backfillEmailHash", usersController.backfillEmailHash);
 router.post("/login", usersController.loginUser);
 router.post("/forgot-password", usersController.forgotPassword);
 router.post("/verify-otp", usersController.verifyOtp);
@@ -79,6 +80,6 @@ router.post(
 );
 // Logout route
 router.post("/logout", authMiddleware, usersController.logoutUser);
-
-
+ 
+ 
 module.exports = router;
