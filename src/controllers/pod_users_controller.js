@@ -1029,6 +1029,46 @@ const getOrguserDetailsByUserId = async (req, res) => {
     });
   }
 };
+const getAllOrgusers = async (req, res) => {
+  const { organization_identifier } = req.params;
+
+  try {
+    const organization_id = await getOrganizationIdByIdentifier(
+      organization_identifier
+    );
+    const result = await pool.query(
+      "SELECT u.user_id, u.first_name, u.last_name, u.email, u.username " +
+        "FROM users u " +
+        "JOIN roles r ON u.role_id = r.role_id " +
+        "WHERE u.organization_id = $1 AND r.role = $2 " +
+        "ORDER BY u.first_name, u.last_name",
+      [organization_id, "orguser"]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+      message:
+        result.rows.length > 0
+          ? "All orgusers fetched successfully"
+          : "No orgusers found",
+    });
+  } catch (error) {
+    if (["Organization not found"].includes(error.message)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: error.message,
+      });
+    }
+    console.error("Error fetching all orgusers:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
 
 const getUnassignedOrgusers = async (req, res) => {
   const { organization_identifier } = req.params;
@@ -1199,5 +1239,6 @@ module.exports = {
   getUnassignedOrgusers,
   getAllOrgusersWithAssignmentStatus,
   getUserBatches,            
-  removeUserFromBatch,      
+  removeUserFromBatch,   
+  getAllOrgusers   
 };

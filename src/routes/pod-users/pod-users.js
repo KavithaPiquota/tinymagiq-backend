@@ -59,6 +59,13 @@ router.delete(
   restrictTo("superadmin"),
   podUsersController.removeUserFromBatch
 );
+// Get all users (simple response - just user info)
+router.get(
+  "/users/:organization_identifier",
+  authMiddleware,
+  restrictTo("superadmin"),
+  podUsersController.getAllOrgusers
+);
 
 // Get unassigned users
 router.get(
