@@ -607,6 +607,15 @@ const getPodByName = async (req, res) => {
 const getPodById = async (req, res) => {
   const { pod_id } = req.params;
   try {
+    // Validate pod_id is numeric
+    if (!/^[0-9]+$/.test(pod_id)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "pod_id must be numeric",
+      });
+    }
+
     const result = await pool.query(
       "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_name, u.user_id, u.first_name, u.last_name, u.email " +
         "FROM pods p " +
@@ -624,6 +633,37 @@ const getPodById = async (req, res) => {
       });
     }
     const pod = result.rows[0];
+
+    // New authorization check to prevent IDOR
+    if (
+      req.user.role === "mentor" &&
+      parseInt(pod.mentor_id) !== req.user.user_id
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You can only access your own pods",
+      });
+    }
+    if (req.user.role === "orgadmin") {
+      // Fetch authenticated orgadmin's organization_id
+      const userOrgResult = await pool.query(
+        "SELECT organization_id FROM users WHERE user_id = $1",
+        [req.user.user_id]
+      );
+      if (
+        userOrgResult.rows.length === 0 ||
+        parseInt(pod.organization_id) !== userOrgResult.rows[0].organization_id
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access pods in your organization",
+        });
+      }
+    }
+    // No validation for superadmin or other roles
+
     const conceptsResult = await pool.query(
       "SELECT c.* FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1",
       [pod.batch_id]
