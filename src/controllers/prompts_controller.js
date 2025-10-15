@@ -1,27 +1,7 @@
 const { pool } = require("../config/database");
 const OpenAI = require("openai");
 const NodeCache = require("node-cache");
-const fs = require("fs").promises; // Add fs.promises for async file operations
-const path = require("path"); // Add path for safe file handling
 const cache = new NodeCache({ stdTTL: 3600 }); // 1-hour TTL for template caching
-
-// Utility to create logs directory
-const ensureLogsDirectory = async () => {
-  const logsDir = path.join(__dirname, "../logs"); // logs/ directory in project root
-  try {
-    await fs.mkdir(logsDir, { recursive: true });
-    console.log("Logs directory ensured:", logsDir);
-  } catch (error) {
-    console.error("Error creating logs directory:", error.message);
-  }
-};
-
-// Utility to sanitize username for safe filenames
-const sanitizeUsername = (username) => {
-  if (!username) return "anonymous";
-  // Replace invalid filename characters with underscores
-  return username.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
-};
 
 // Fetch OpenAI API key from database
 const getOpenAIApiKey = async () => {
@@ -54,7 +34,7 @@ const sanitizeInput = (input) => {
 
 // Utility to validate JSON string
 const isValidJsonString = (str) => {
-  if (typeof str !== "string") return true;
+  if (typeof str !== "string") return true; // Non-string inputs are not validated as JSON
   try {
     JSON.parse(str);
     return true;
@@ -1095,31 +1075,6 @@ const processLLM = async (req, res) => {
     },
   });
 
-  // Ensure logs directory exists
-  await ensureLogsDirectory();
-
-  // Sanitize username for filename
-  const safeUsername = sanitizeUsername(username);
-  const logFilePath = path.join(__dirname, "../logs", `${safeUsername}.txt`);
-
-  // Prepare log entry for user input, including only the last sessionHistory entry
-  const truncatedConcept =
-    JSON.stringify(selectedConcept).split(/\s+/).slice(0, 30).join(" ") +
-    (JSON.stringify(selectedConcept).split(/\s+/).length > 30 ? " ..." : "");
-  const modifiedBody = {
-    ...req.body,
-    sessionHistory:
-      sessionHistory.length > 0
-        ? [sessionHistory[sessionHistory.length - 1]]
-        : [],
-    selectedConcept: truncatedConcept,
-  };
-  const logEntry = `
---- Request at ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })} IST ---
-User Input:
-${JSON.stringify(modifiedBody, null, 2)}
-`;
-
   try {
     // Validate inputs
     if (
@@ -1130,11 +1085,6 @@ ${JSON.stringify(modifiedBody, null, 2)}
       !batchId
     ) {
       console.error("Validation failed: Missing required fields");
-      // Append error to log
-      await fs.appendFile(
-        logFilePath,
-        `${logEntry}Error: Missing required fields\n\n`
-      );
       return res.status(400).json({
         success: false,
         error: "Bad request",
@@ -1225,15 +1175,6 @@ ${JSON.stringify(modifiedBody, null, 2)}
     const endTime = Date.now();
     console.log(`OpenAI API call took ${(endTime - startTime) / 1000} seconds`);
     console.log("OpenAI response:", responseText.substring(0, 200) + "...");
-
-    // Append OpenAI response to log
-    await fs.appendFile(
-      logFilePath,
-      `${logEntry}OpenAI Response:
-${responseText}
-
-`
-    );
 
     // Default response structure
     let parsedResponse = {
@@ -1362,14 +1303,6 @@ ${responseText}
     }
   } catch (error) {
     console.error("Error in processLLM:", error);
-    // Append error to log
-    await fs.appendFile(
-      logFilePath,
-      `${logEntry}Error:
-${error.message}
-
-`
-    );
     return res.status(500).json({
       success: false,
       error: "Internal server error",
