@@ -23,6 +23,6 @@ module.exports = {
 
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 50000,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 20,
   },
 };
