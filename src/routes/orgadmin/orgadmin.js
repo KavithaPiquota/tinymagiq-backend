@@ -5,25 +5,25 @@ const authMiddleware = require("../../middleware/auth");
 const { restrictTo } = require("../../middleware/rbac");
 
 router.get(
-  "/batches/:email",
+  "/batches/:username",
   authMiddleware,
   restrictTo("orgadmin"),
   orgadminController.getBatchesByOrgadmin
 );
 router.get(
-  "/pods/:email",
+  "/pods/:username",
   authMiddleware,
   restrictTo("orgadmin"),
   orgadminController.getPodsByOrgadmin
 );
 router.get(
-  "/users/:email",
+  "/users/:username",
   authMiddleware,
   restrictTo("orgadmin"),
   orgadminController.getUsersByOrgadmin
 );
 router.get(
-  "/progress/:email",
+  "/progress/:username",
   authMiddleware,
   restrictTo("orgadmin"),
   orgadminController.getProgressByOrgadmin
