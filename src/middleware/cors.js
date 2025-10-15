@@ -5,7 +5,7 @@ const corsOptions = {
     const allowedOrigins = [
       "https://nextgenlearn.magiqspark.ai",
       "https://tinymagiq.yoweb.fun",
-      "https://tinymagiq-backend-f1tn.onrender.com",
+      "https://tiny-magic-7oa7.onrender.com",
       "http://localhost:3000",
       "http://localhost:3001",
       "127.0.0.1", // Allow Nginx internal connection
