@@ -1,12 +1,12 @@
 const { pool } = require("../config/database");
 const { OpenAI } = require("openai");
 const multer = require("multer");
-const fs = require("fs").promises;
-const path = require("path");
+const ffmpeg = require("fluent-ffmpeg");
+const { PassThrough } = require("stream");
 
-// Configure multer for file uploads
+// ✅ Use in-memory storage (no filesystem writes)
 const upload = multer({
-  dest: "uploads/",
+  storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
@@ -20,33 +20,61 @@ const upload = multer({
       "video/mp4",
       "video/mpeg",
     ];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Invalid file type. Supported formats: mp3, wav, m4a, mp4, mpeg, mpga, webm"));
-    }
+    if (allowedTypes.includes(file.mimetype)) cb(null, true);
+    else
+      cb(
+        new Error(
+          "Invalid file type. Supported: mp3, wav, m4a, mp4, mpeg, mpga, webm"
+        )
+      );
   },
 });
 
-// Helper function to retrieve OpenAI API key from the keys table
+// 🔹 Helper: Get OpenAI API key from DB
 const getOpenAIApiKey = async () => {
-  try {
-    const result = await pool.query("SELECT api_key FROM keys LIMIT 1");
-    if (result.rows.length === 0) {
-      throw new Error("No API key found in the keys table");
-    }
-    return result.rows[0].api_key;
-  } catch (error) {
-    console.error("Error fetching OpenAI API key:", error);
-    throw error;
-  }
+  const result = await pool.query("SELECT api_key FROM keys LIMIT 1");
+  if (result.rows.length === 0)
+    throw new Error("No API key found in the keys table");
+  return result.rows[0].api_key;
 };
 
-// Transcribe audio file using OpenAI Whisper
+// 🔹 Helper: Convert Buffer to Stream
+const bufferToStream = (buffer) => {
+  const stream = new PassThrough();
+  stream.end(buffer);
+  return stream;
+};
+
+// 🔹 Noise reduction via ffmpeg (in memory)
+const denoiseAudio = (inputBuffer) => {
+  return new Promise((resolve, reject) => {
+    const inputStream = bufferToStream(inputBuffer);
+    const outputStream = new PassThrough();
+    const chunks = [];
+
+    ffmpeg(inputStream)
+      // Apply filters:
+      //  - afftdn: basic noise reduction
+      //  - loudnorm: normalize volume
+      //  - silenceremove: trim silence
+      .audioFilters([
+        "afftdn=nf=-25",
+        "loudnorm",
+        "silenceremove=start_periods=1:start_silence=0.5:stop_periods=-1:stop_threshold=-50dB",
+      ])
+      .audioCodec("pcm_s16le")
+      .format("wav")
+      .on("error", (err) => reject(err))
+      .pipe(outputStream, { end: true });
+
+    outputStream.on("data", (chunk) => chunks.push(chunk));
+    outputStream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+};
+
+// 🔹 Main Controller
 const transcribeAudio = async (req, res) => {
-  let tempFilePath = null;
   try {
-    // Check if file is uploaded
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -55,50 +83,27 @@ const transcribeAudio = async (req, res) => {
       });
     }
 
-    // Fetch OpenAI API key
     const apiKey = await getOpenAIApiKey();
-
-    // Initialize OpenAI client
     const openai = new OpenAI({ apiKey });
 
-    // Rename the temp file to include the original extension (e.g., .webm)
-    const originalExt = path.extname(req.file.originalname) || '.webm'; // Fallback to .webm if no ext
-    tempFilePath = path.resolve(req.file.path + originalExt);
-    await fs.rename(req.file.path, tempFilePath);
+    // Step 1: Denoise audio in-memory
+    const cleanedBuffer = await denoiseAudio(req.file.buffer);
 
-    // Read the renamed file
-    const fileStream = require("fs").createReadStream(tempFilePath);
-
-    // Call OpenAI Whisper API for transcription
+    // Step 2: Send cleaned audio to Whisper
     const transcription = await openai.audio.transcriptions.create({
-      file: fileStream,
+      file: new File([cleanedBuffer], "audio.wav", { type: "audio/wav" }),
       model: "whisper-1",
       language: "en",
     });
 
-    // Clean up the temporary file
-    await fs.unlink(tempFilePath).catch((err) => {
-      console.error(`Failed to delete temporary file ${tempFilePath}:`, err);
-    });
-
-    // Return the transcription
     res.status(200).json({
       success: true,
-      data: {
-        transcription: transcription.text,
-      },
-      message: "Audio transcribed successfully",
+      data: { transcription: transcription.text },
+      message: "Audio transcribed successfully with noise cancellation",
     });
   } catch (error) {
-    // Clean up the temporary file in case of error
-    if (tempFilePath || req.file) {
-      const pathToDelete = tempFilePath || req.file.path;
-      await fs.unlink(pathToDelete).catch((err) => {
-        console.error(`Failed to delete temporary file ${pathToDelete}:`, err);
-      });
-    }
-
     console.error("Error transcribing audio:", error);
+
     if (error.message.includes("No API key found")) {
       return res.status(500).json({
         success: false,
@@ -106,6 +111,7 @@ const transcribeAudio = async (req, res) => {
         message: "API key configuration error",
       });
     }
+
     if (error.message.includes("Invalid file type")) {
       return res.status(400).json({
         success: false,
@@ -113,20 +119,7 @@ const transcribeAudio = async (req, res) => {
         message: error.message,
       });
     }
-    if (error.code === "ERR_INVALID_FILE_SIZE") {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "File size exceeds 25MB limit",
-      });
-    }
-    if (error.response && error.response.status) {
-      return res.status(error.response.status).json({
-        success: false,
-        error: "OpenAI API error",
-        message: error.response.data.error.message || "Failed to transcribe audio",
-      });
-    }
+
     res.status(500).json({
       success: false,
       error: "Internal server error",
@@ -135,7 +128,6 @@ const transcribeAudio = async (req, res) => {
   }
 };
 
-// Export the controller with multer middleware
 module.exports = {
   transcribeAudio: [upload.single("audio"), transcribeAudio],
 };

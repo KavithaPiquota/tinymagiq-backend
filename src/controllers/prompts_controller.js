@@ -1,8 +1,5 @@
 const { pool } = require("../config/database");
 const OpenAI = require("openai");
-const NodeCache = require("node-cache");
-
-const cache = new NodeCache({ stdTTL: 3600 });
 const { Langfuse } = require("langfuse"); // Import Langfuse SDK
 
 // Initialize Langfuse client
@@ -1175,19 +1172,13 @@ const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
       input: { selectedPrompt, organizationId, batchId },
     });
 
-    // Load template with caching
+    // Load template
     console.log(`Loading template for ${selectedPrompt}...`);
-    const cacheKey = `${selectedPrompt}:${organizationId}:${batchId}`;
-    let templateContent = cache.get(cacheKey);
-    if (!templateContent) {
-      templateContent = await loadTemplate(
-        selectedPrompt,
-        organizationId,
-        batchId
-      );
-      cache.set(cacheKey, templateContent);
-      console.log(`Cached template ${cacheKey}`);
-    }
+    const templateContent = await loadTemplate(
+      selectedPrompt,
+      organizationId,
+      batchId
+    );
     console.log("Template loaded:", templateContent.substring(0, 100) + "...");
     templateSpan.end({
       output: { templateContent: templateContent.substring(0, 100) + "..." },
