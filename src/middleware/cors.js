@@ -9,6 +9,7 @@ const corsOptions = {
       "https://tiny-magic-7oa7.onrender.com",
       "https://tiny-magic-fwgb.onrender.com",
       "https://tinymagiq.yoweb.fun",
+      "https://tiny-magic-4daj.onrender.com",
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, origin || "https://nextgenlearn.magiqspark.ai");
