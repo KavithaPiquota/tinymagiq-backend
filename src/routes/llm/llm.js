@@ -1,34 +1,46 @@
 const express = require("express");
 const router = express.Router();
 const llmController = require("../../controllers/llm_controller");
+const authMiddleware = require("../../middleware/auth");
 
-// Model Routes
-// POST /api/llm/model - Add a new LLM model
-router.post("/model", llmController.addModel);
+// Model routes
+router.post("/models", authMiddleware, llmController.addModel);
+router.put("/models/:model_id", authMiddleware, llmController.updateModel);
+router.get("/models", authMiddleware, llmController.getAllModels);
 
-// PUT /api/llm/model/:model_id - Update an existing LLM model
-router.put("/model/:model_id", llmController.updateModel);
+//Delete routes
+router.delete("/models/:model_id", authMiddleware, llmController.deleteModel);
 
-// GET /api/llm/models - Get all LLM models (for dropdown)
-router.get("/models", llmController.getAllModels);
-
-// Assignment Routes
-// POST /api/llm/assignment - Assign an LLM model to a level
-router.post("/assignment", llmController.addAssignment);
-
-// PUT /api/llm/assignment/:assignment_id - Update an LLM model assignment
-router.put("/assignment/:assignment_id", llmController.updateAssignment);
-
-// GET /api/llm/assignments - Fetch all LLM model assignments
-router.get("/assignments", llmController.getAllAssignments);
-
-// GET /api/llm/assignments/:organization_id - Fetch LLM model assignments for a specific organization
+// Assignment routes
+router.post("/assignments", authMiddleware, llmController.addAssignment);
+router.put(
+  "/assignments/:assignment_id",
+  authMiddleware,
+  llmController.updateAssignment
+);
+router.get("/assignments", authMiddleware, llmController.getAllAssignments);
 router.get(
-  "/assignments/:organization_id",
+  "/assignments/organization/:organization_id",
+  authMiddleware,
   llmController.getOrganizationAssignments
 );
+router.get(
+  "/assignments/fallback",
+  authMiddleware,
+  llmController.getAssignmentWithFallback
+);
 
-// GET /api/llm/fallback - Fetch LLM model assignment with fallback (batch -> organization -> global)
-router.get("/fallback", llmController.getAssignmentWithFallback);
+// Orgadmin-specific routes
+router.get("/orgadmin/models", authMiddleware, llmController.getOrgadminModels);
+router.get(
+  "/orgadmin/assignments",
+  authMiddleware,
+  llmController.getOrgadminAssignments
+);
+router.get(
+  "/orgadmin/organization-models",
+  authMiddleware,
+  llmController.getOrgadminOrganizationModels
+);
 
 module.exports = router;
