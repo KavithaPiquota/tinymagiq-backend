@@ -5,7 +5,12 @@ const authMiddleware = require("../../middleware/auth");
 const { restrictTo } = require("../../middleware/rbac");
 
 // Get all organizations
-router.get("/", authMiddleware, organizationsController.getAllOrganizations);
+router.get(
+  "/",
+  authMiddleware,
+  restrictTo("superadmin"),
+  organizationsController.getAllOrganizations
+);
 
 // Get active organizations
 router.get(
