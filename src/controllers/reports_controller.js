@@ -93,7 +93,40 @@ const getProgressReport = async (req, res) => {
     const values = [];
     const conditions = [];
 
-    if (organization_name) {
+    // New: Fetch authenticated user's organization_id early for scoping
+    let userOrgId = null;
+    if (req.user.role === "orgadmin" || req.user.role === "mentor") {
+      const userOrgResult = await pool.query(
+        "SELECT organization_id FROM users WHERE user_id = $1",
+        [req.user.user_id]
+      );
+      if (userOrgResult.rows.length === 0) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "User organization not found",
+        });
+      }
+      userOrgId = userOrgResult.rows[0].organization_id;
+    }
+
+    // Override organization_name if provided and mismatched for orgadmin/mentor
+    if (req.user.role === "orgadmin" || req.user.role === "mentor") {
+      if (organization_name) {
+        const providedOrgId = await getOrganizationIdByName(organization_name);
+        if (providedOrgId !== userOrgId) {
+          return res.status(403).json({
+            success: false,
+            error: "Forbidden",
+            message: "You can only access data from your own organization",
+          });
+        }
+      }
+      // Force organization filter
+      conditions.push(`o.organization_id = $${values.length + 1}`);
+      values.push(userOrgId);
+    } else if (organization_name) {
+      // For superadmin or others, allow provided organization_name
       const organization_id = await getOrganizationIdByName(organization_name);
       conditions.push(`o.organization_id = $${values.length + 1}`);
       values.push(organization_id);
@@ -114,13 +147,13 @@ const getProgressReport = async (req, res) => {
       values.push(`%${concept_name}%`);
     }
 
-    // New authorization logic to prevent IDOR
+    // Role-specific filters
     if (req.user.role === "mentor") {
       // Force filter to the authenticated mentor's own ID
       conditions.push(`p.mentor_id = $${values.length + 1}`);
       values.push(req.user.user_id);
 
-      // Optional: Strictly forbid if query provides a mismatched mentor_id
+      // Strictly forbid if query provides a mismatched mentor_id
       if (mentor_id && parseInt(mentor_id) !== req.user.user_id) {
         return res.status(403).json({
           success: false,
@@ -129,7 +162,7 @@ const getProgressReport = async (req, res) => {
         });
       }
 
-      // Similarly, handle mentor_email if provided (ignore or check)
+      // Similarly, handle mentor_email if provided
       if (mentor_email && mentor_email !== req.user.email) {
         return res.status(403).json({
           success: false,
@@ -138,7 +171,18 @@ const getProgressReport = async (req, res) => {
         });
       }
     } else if (req.user.role === "orgadmin") {
-      // Allow flexible filtering for orgadmins
+      // Allow mentor_id/mentor_email filters but already scoped to org
+      if (mentor_id) {
+        conditions.push(`p.mentor_id = $${values.length + 1}`);
+        values.push(parseInt(mentor_id));
+      }
+
+      if (mentor_email) {
+        conditions.push(`m.email = $${values.length + 1}`);
+        values.push(mentor_email);
+      }
+    } else if (req.user.role === "superadmin") {
+      // No additional filters for superadmin; allow mentor_id/mentor_email as is
       if (mentor_id) {
         conditions.push(`p.mentor_id = $${values.length + 1}`);
         values.push(parseInt(mentor_id));
