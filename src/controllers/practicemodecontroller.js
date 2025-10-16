@@ -751,8 +751,8 @@ class practicemodeController {
             });
         }
     }
-
-    // Get practicemode history with concept_name and scoring data 
+ 
+    // Get practicemode history with concept_name, scoring data, batch and pod info 
     async getpracticemodeHistory(req, res, next) {
         try {
             const { user_id } = req.params;
@@ -767,18 +767,24 @@ class practicemodeController {
 
             let query, params, countQuery, countParams;
 
-            // Updated SELECT to include scoring fields and user details
+            // Updated SELECT to include scoring fields, user details, batch and pod info
             const selectFields = `c.id, c.user_id, c.conversation, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at,
                                 c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
                                 c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
                                 c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
-                                c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,c.overall_performance, c.facet_ratings_explanation, c.facet_ratings_interpretation, c.facet_ratings_application, 
+                                c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
+                                c.overall_performance, c.facet_ratings_explanation, c.facet_ratings_interpretation, c.facet_ratings_application, 
                                 c.facet_ratings_perspective, c.facet_ratings_empathy, c.facet_ratings_self_knowledge, 
                                 c.key_patterns, c.recommended_focus_areas, c.personalized_next_steps, c.session_summary,
-                                u.username, u.first_name, u.last_name, u.email`;
+                                u.username, u.first_name, u.last_name, u.email,
+                                pu.batch_id, b.batch_name, p.pod_id, p.pod_name`;
 
-            // Base FROM clause with JOIN using type conversion for user_id
-            const fromClause = `FROM practicemode c LEFT JOIN users u ON c.user_id::integer = u.user_id`;
+            // Base FROM clause with JOINs to get batch and pod info
+            const fromClause = `FROM practicemode c 
+                                    LEFT JOIN users u ON c.user_id::integer = u.user_id
+                                    LEFT JOIN pod_users pu ON c.user_id::integer = pu.user_id
+                                    LEFT JOIN batches b ON pu.batch_id = b.batch_id
+                                    LEFT JOIN pods p ON pu.pod_id = p.pod_id`;
 
             if (status === 'all') {
                 if (stage !== undefined && concept !== undefined) {
@@ -910,7 +916,7 @@ class practicemodeController {
             const result = await pool.query(query, params);
             const countResult = await pool.query(countQuery, countParams);
 
-            // Add stage display names, include scoring data, and structure user details
+            // Add stage display names, include scoring data, and structure user/batch/pod details
             const practicemodes = result.rows.map(practicemode => {
                 // Parse conversation JSON
                 if (typeof practicemode.conversation === 'string') {
@@ -940,6 +946,10 @@ class practicemodeController {
                     updated_at: practicemode.updated_at,
                     stage_display_name: `Stage ${practicemode.current_stage}`,
                     user_details,
+                    batch_id: practicemode.batch_id || null,
+                    batch_name: practicemode.batch_name || null,
+                    pod_id: practicemode.pod_id || null,
+                    pod_name: practicemode.pod_name || null,
                     overall_performance: practicemode.overall_performance,
                     facet_ratings_explanation: practicemode.facet_ratings_explanation,
                     facet_ratings_interpretation: practicemode.facet_ratings_interpretation,
