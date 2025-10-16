@@ -43,7 +43,23 @@ const getUserIdByIdentifier = async (identifier, first_name, last_name) => {
 const getMentorPods = async (req, res) => {
   const { mentor_identifier } = req.params;
   try {
-    const mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    let mentor_id;
+    if (req.user.role === "mentor") {
+      // Force to authenticated mentor's own identifier
+      if (
+        mentor_identifier !== req.user.email &&
+        mentor_identifier !== req.user.username
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own pods",
+        });
+      }
+      mentor_id = req.user.user_id;
+    } else {
+      mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    }
     const result = await pool.query(
       "SELECT p.pod_id, p.pod_name, p.is_active AS pod_is_active, p.created_at AS pod_created_at, " +
         "b.batch_id, b.batch_name, b.batch_size, b.is_active AS batch_is_active, " +
@@ -82,7 +98,22 @@ const getMentorPods = async (req, res) => {
 const getMentorPodConcepts = async (req, res) => {
   const { mentor_identifier } = req.params;
   try {
-    const mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    let mentor_id;
+    if (req.user.role === "mentor") {
+      if (
+        mentor_identifier !== req.user.email &&
+        mentor_identifier !== req.user.username
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own pod concepts",
+        });
+      }
+      mentor_id = req.user.user_id;
+    } else {
+      mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    }
     const podsResult = await pool.query(
       "SELECT p.pod_id, p.pod_name, p.is_active AS pod_is_active, p.created_at AS pod_created_at, " +
         "b.batch_id, b.batch_name, b.batch_size, b.is_active AS batch_is_active, " +
@@ -103,7 +134,7 @@ const getMentorPodConcepts = async (req, res) => {
           pod_id: pod.pod_id,
           pod_name: pod.pod_name,
           is_active: pod.pod_is_active,
-          created_at: pod.pod_created_at,
+          created_at: pod.created_at,
           batch: {
             batch_id: pod.batch_id,
             batch_name: pod.batch_name,
@@ -146,7 +177,22 @@ const getMentorPodConcepts = async (req, res) => {
 const getMentorOrguserProgress = async (req, res) => {
   const { mentor_identifier } = req.params;
   try {
-    const mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    let mentor_id;
+    if (req.user.role === "mentor") {
+      if (
+        mentor_identifier !== req.user.email &&
+        mentor_identifier !== req.user.username
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access your own orguser progress",
+        });
+      }
+      mentor_id = req.user.user_id;
+    } else {
+      mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    }
     const podsResult = await pool.query(
       "SELECT p.pod_id, p.pod_name, p.is_active AS pod_is_active, p.created_at AS pod_created_at, " +
         "b.batch_id, b.batch_name, b.batch_size, b.is_active AS batch_is_active, " +
@@ -188,7 +234,7 @@ const getMentorOrguserProgress = async (req, res) => {
           pod_id: pod.pod_id,
           pod_name: pod.pod_name,
           is_active: pod.pod_is_active,
-          created_at: pod.pod_created_at,
+          created_at: pod.created_at,
           batch: {
             batch_id: pod.batch_id,
             batch_name: pod.batch_name,
@@ -232,7 +278,22 @@ const getMentorOrguserDetails = async (req, res) => {
   const { mentor_identifier, identifier } = req.params;
   const { first_name, last_name } = req.query;
   try {
-    const mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    let mentor_id;
+    if (req.user.role === "mentor") {
+      if (
+        mentor_identifier !== req.user.email &&
+        mentor_identifier !== req.user.username
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only access details for your own orgusers",
+        });
+      }
+      mentor_id = req.user.user_id;
+    } else {
+      mentor_id = await getMentorIdByIdentifier(mentor_identifier);
+    }
     const user = await getUserIdByIdentifier(identifier, first_name, last_name);
     const podUserResult = await pool.query(
       "SELECT pu.pod_user_id, pu.pod_id, pu.created_at AS pod_assigned_at " +
