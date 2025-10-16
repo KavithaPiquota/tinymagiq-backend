@@ -7,9 +7,7 @@ const authMiddleware = require("../../middleware/auth");
 router.post("/models", authMiddleware, llmController.addModel);
 router.put("/models/:model_id", authMiddleware, llmController.updateModel);
 router.get("/models", authMiddleware, llmController.getAllModels);
-
-//Delete routes
-router.delete("/models/:model_id", authMiddleware, llmController.deleteModel);
+router.get("/global-models/public", llmController.getGlobalModelsPublic);
 
 // Assignment routes
 router.post("/assignments", authMiddleware, llmController.addAssignment);
@@ -42,5 +40,8 @@ router.get(
   authMiddleware,
   llmController.getOrgadminOrganizationModels
 );
+
+//Delete routes
+router.delete("/models/:model_id", authMiddleware, llmController.deleteModel);
 
 module.exports = router;

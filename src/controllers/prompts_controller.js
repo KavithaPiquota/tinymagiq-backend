@@ -9,32 +9,37 @@ const langfuse = new Langfuse({
   baseUrl: process.env.LANGFUSE_HOST || "https://cloud.langfuse.com", // Adjust if using self-hosted Langfuse
 });
 
-
 const sanitizeUsername = (username) => {
   if (!username) return "anonymous";
   // Replace invalid filename characters with underscores
   return username.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
 };
 
-// Fetch OpenAI API key from database
-const getOpenAIApiKey = async () => {
-  try {
-    const result = await pool.query(
-      "SELECT api_key FROM keys WHERE api_key IS NOT NULL LIMIT 1"
-    );
-    if (result.rows.length === 0) {
-      throw new Error("No OpenAI API key found in database");
-    }
-    return result.rows[0].api_key;
-  } catch (error) {
-    console.error("Error fetching OpenAI API key:", error);
-    throw error;
+// Fetch API key from llm_models table based on model_id
+const getOpenAIApiKeyForModel = async (model_id) => {
+  if (!model_id || isNaN(model_id)) {
+    throw new Error("Invalid model_id – must be a positive integer");
   }
+
+  const { rows } = await pool.query(
+    `SELECT api_key
+     FROM llm_models
+     WHERE model_id = $1
+       AND is_active = TRUE`,
+    [model_id]
+  );
+
+  if (rows.length === 0) {
+    throw new Error(
+      `No active LLM model found for model_id ${model_id}. Check llm_models table.`
+    );
+  }
+  return rows[0].api_key;
 };
 
-// Initialize OpenAI client
-const initializeOpenAI = async () => {
-  const apiKey = await getOpenAIApiKey();
+// Initialize OpenAI client using model-specific key
+const initializeOpenAIForModel = async (model_id) => {
+  const apiKey = await getOpenAIApiKeyForModel(model_id);
   return new OpenAI({ apiKey });
 };
 
@@ -274,7 +279,9 @@ const addPrompt = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${
+          organization_id || "NULL"
+        }', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
 
@@ -317,7 +324,9 @@ const addPrompt = async (req, res) => {
     );
 
     const prompt = result.rows[0];
-    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${prompt.additional_content || ""}`;
+    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${
+      prompt.additional_content || ""
+    }`;
     console.log("addPrompt: prompt_content length:", prompt_content.length);
     res.status(201).json({
       success: true,
@@ -334,7 +343,9 @@ const addPrompt = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${
+          organization_id || "NULL"
+        }', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
     console.error("Error adding prompt:", error);
@@ -472,7 +483,9 @@ const updatePrompt = async (req, res) => {
     await pool.query("COMMIT");
 
     const prompt = result.rows[0];
-    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${prompt.additional_content || ""}`;
+    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${
+      prompt.additional_content || ""
+    }`;
     console.log("updatePrompt: prompt_content length:", prompt_content.length);
     res.json({
       success: true,
@@ -490,7 +503,9 @@ const updatePrompt = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${
+          organization_id || "NULL"
+        }', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
     console.error("Error updating prompt:", error);
@@ -705,7 +720,9 @@ const addBatchPrompt = async (req, res) => {
     );
 
     const prompt = result.rows[0];
-    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${prompt.additional_content || ""}`;
+    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${
+      prompt.additional_content || ""
+    }`;
     console.log(
       "addBatchPrompt: prompt_content length:",
       prompt_content.length
@@ -1095,7 +1112,7 @@ const getPromptsWithFallback = async (req, res) => {
   }
 };
 
-// New function to process LLM request on backend
+// Updated processLLM with model_id support (no legacy)
 const processLLM = async (req, res) => {
   const {
     username,
@@ -1106,6 +1123,7 @@ const processLLM = async (req, res) => {
     selectedConcept,
     organizationId,
     batchId,
+    model_id, // Required model_id from llm_models
   } = req.body;
 
   console.log("processLLM: Request received:", {
@@ -1122,59 +1140,100 @@ const processLLM = async (req, res) => {
       selectedConcept: selectedConcept?.concept_name,
       organizationId,
       batchId,
+      model_id,
     },
   });
 
+  let orgTrace;
+  let batchTrace;
+  let openai; // Model-specific client
   try {
-    // Validate inputs
+    // Validate inputs - model_id now required
     if (
       !selectedPrompt ||
       !selectedModel ||
       !selectedConcept ||
       !organizationId ||
-      !batchId
+      !batchId ||
+      !model_id
     ) {
       console.error("Validation failed: Missing required fields");
-      
+
       return res.status(400).json({
         success: false,
         error: "Bad request",
         message:
-          "selectedPrompt, selectedModel, selectedConcept, organizationId, and batchId are required",
+          "selectedPrompt, selectedModel, selectedConcept, organizationId, batchId, and model_id are required",
       });
     }
-   const orgResult = await pool.query(
-  'SELECT organization_name FROM organizations WHERE organization_id = $1',
-  [organizationId]
-);
-const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
-    // Initialize OpenAI client
-    console.log("Initializing OpenAI client...");
-    const openai = await initializeOpenAI();
-     const safeUsername = sanitizeUsername(username);
+    const orgResult = await pool.query(
+      "SELECT organization_name FROM organizations WHERE organization_id = $1",
+      [organizationId]
+    );
+    const organizationName = orgResult.rows[0]?.organization_name || "unknown";
+
+    const batchResult = await pool.query(
+      "SELECT batch_name FROM batches WHERE batch_id = $1",
+      [batchId]
+    );
+    const batchName = batchResult.rows[0]?.batch_name || "unknown";
+
+    // Initialize model-specific OpenAI client
+    console.log(`Initializing OpenAI client for model_id ${model_id}...`);
+    openai = await initializeOpenAIForModel(model_id);
+
+    const safeUsername = sanitizeUsername(username);
     // Create Langfuse trace
-    const trace = langfuse.trace({
-      name: `processLLM-${selectedPrompt}`,
+    // Create organization-level trace (independent)
+    orgTrace = langfuse.trace({
+      name: `org-processLLM-${organizationName}`,
       userId: safeUsername,
-      sessionId: organizationName,
+      sessionId: organizationName, // Separate: just orgName
       metadata: {
         organizationName,
+        organizationId,
+        selectedModel,
+        selectedPrompt,
+        // Add batch info for cross-ref
+        batchName,
+        batchId,
+        model_id,
+      },
+    });
+
+    // Add a light span to orgTrace for visibility (logs request start)
+    const orgInitSpan = orgTrace.span({
+      name: "request-init",
+      input: { username: safeUsername, selectedPrompt, selectedModel },
+      output: { status: "started" },
+    });
+    orgInitSpan.end(); // End immediately after creation
+
+    // Create batch-level trace (independent, no parent link)
+    batchTrace = langfuse.trace({
+      name: `batch-processLLM-${batchName}`,
+      userId: safeUsername,
+      sessionId: batchName, // Separate: just batchName
+      metadata: {
+        organizationName, // Separate field for org cross-ref
+        batchName,
         batchId,
         selectedModel,
         selectedPrompt,
         conceptName: selectedConcept?.concept_name,
+        model_id,
       },
     });
 
     // Create a span for template loading
-    const templateSpan = trace.span({
+    const templateSpan = batchTrace.span({
       name: "load-template",
       input: { selectedPrompt, organizationId, batchId },
     });
 
     // Load template
     console.log(`Loading template for ${selectedPrompt}...`);
-    const templateContent = await loadTemplate(
+    let templateContent = await loadTemplate(
       selectedPrompt,
       organizationId,
       batchId
@@ -1185,7 +1244,7 @@ const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
     });
 
     // Create a span for template processing
-    const processSpan = trace.span({
+    const processSpan = batchTrace.span({
       name: "process-template",
       input: { templateContent, selectedConcept },
     });
@@ -1225,7 +1284,7 @@ const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
     }
 
     // Create a generation for the OpenAI API call
-    const generation = trace.generation({
+    const generation = batchTrace.generation({
       name: "openai-chat-completion",
       model: selectedModel,
       input: messages,
@@ -1278,8 +1337,6 @@ const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
       output: responseText,
       latency: (endTime - startTime) / 1000,
     });
-
-    
 
     // Default response structure
     let parsedResponse = {
@@ -1408,13 +1465,22 @@ const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
     }
   } catch (error) {
     console.error("Error in processLLM:", error);
-   
-    // Log error to Langfuse
-    trace.span({
-      name: "error",
-      input: { errorMessage: error.message },
-      output: { status: "failed" },
-    });
+
+    // Log error to batchTrace (or orgTrace if batchTrace not created)
+    if (batchTrace) {
+      batchTrace.span({
+        name: "error",
+        input: { errorMessage: error.message },
+        output: { status: "failed" },
+      });
+    }
+    if (orgTrace) {
+      orgTrace.span({
+        name: "error",
+        input: { errorMessage: error.message },
+        output: { status: "failed" },
+      });
+    }
     return res.status(500).json({
       success: false,
       error: "Internal server error",
@@ -1423,7 +1489,7 @@ const organizationName = orgResult.rows[0]?.organization_name || 'unknown';
         : error.message,
     });
   } finally {
-    // Ensure Langfuse trace is flushed
+    // Ensure all traces are flushed via the client (handles both orgTrace and batchTrace)
     await langfuse.flush();
   }
 };

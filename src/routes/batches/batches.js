@@ -21,7 +21,7 @@ router.put(
 );
 
 // Get all batches
-router.get("/", authMiddleware, restrictTo("superadmin"), batchesController.getAllBatches);
+router.get("/", authMiddleware, restrictTo("superadmin","orgadmin"), batchesController.getAllBatches);
 
 // Get batches by organization name
 router.get(

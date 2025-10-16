@@ -1176,7 +1176,6 @@ const getAssignmentWithFallback = async (req, res) => {
         a.model_id, 
         m.model_name, 
         m.name,
-        m.api_key,
         a.level, 
         a.organization_id, 
         a.batch_id, 
@@ -1207,7 +1206,6 @@ const getAssignmentWithFallback = async (req, res) => {
         a.model_id, 
         m.model_name, 
         m.name,
-        m.api_key,
         a.level, 
         a.organization_id, 
         a.batch_id, 
@@ -1237,7 +1235,6 @@ const getAssignmentWithFallback = async (req, res) => {
         a.model_id, 
         m.model_name, 
         m.name,
-        m.api_key,
         a.level, 
         a.organization_id, 
         a.batch_id, 
@@ -1438,6 +1435,45 @@ const getOrgadminOrganizationModels = async (req, res) => {
   }
 };
 
+// Get global active models without api_key (public, no auth required, excludes organization models)
+const getGlobalModelsPublic = async (req, res) => {
+  try {
+    // No authentication required - open to all
+    // Fetch only global (organization_id IS NULL), active models, excluding api_key
+    const query = `
+      SELECT 
+        model_id, 
+        model_name, 
+        name, 
+        description, 
+        is_active, 
+        created_at, 
+        updated_at
+      FROM llm_models
+      WHERE is_active = true 
+      AND organization_id IS NULL
+      ORDER BY model_name
+    `;
+    const result = await pool.query(query);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      message:
+        result.rows.length > 0
+          ? "Global models fetched successfully"
+          : "No active global models found",
+    });
+  } catch (error) {
+    console.error("Error fetching global models (public):", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
+  }
+};
+
 // Export functions
 module.exports = {
   addModel,
@@ -1452,4 +1488,5 @@ module.exports = {
   getOrgadminModels,
   getOrgadminAssignments,
   getOrgadminOrganizationModels,
+  getGlobalModelsPublic,
 };

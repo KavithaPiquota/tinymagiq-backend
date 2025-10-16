@@ -44,7 +44,8 @@
     "multer": "^2.0.2",
     "node-cache": "^5.1.2",
     "openai": "^5.23.0",
-    "pg": "^8.16.0"
+    "pg": "^8.16.0",
+    "readable-stream": "^4.7.0"
   },
   "devDependencies": {
     "eslint": "^8.57.1",
