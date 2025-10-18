@@ -370,15 +370,6 @@ const updatePrompt = async (req, res) => {
     json_content = sanitizeInput(json_content);
     additional_content = sanitizeInput(additional_content);
 
-    // Validate input
-    if (!user_content) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad request",
-        message: "user_content is required",
-      });
-    }
-
     // Validate json_content as JSON string if provided
     if (json_content !== undefined && !isValidJsonString(json_content)) {
       return res.status(400).json({
@@ -393,7 +384,7 @@ const updatePrompt = async (req, res) => {
 
     // Get the existing prompt
     const existingPrompt = await pool.query(
-      `SELECT prompt_id, prompt_type, version, json_content, additional_content, prompt_level, organization_id, batch_id 
+      `SELECT prompt_id, prompt_type, version, user_content, json_content, additional_content, prompt_level, organization_id, batch_id 
        FROM prompts 
        WHERE prompt_id = $1 AND isarchived = FALSE`,
       [prompt_id]
@@ -411,6 +402,7 @@ const updatePrompt = async (req, res) => {
     const {
       prompt_type,
       version,
+      user_content: existing_user_content,
       json_content: existing_json_content,
       additional_content: existing_additional_content,
       prompt_level,
@@ -418,20 +410,30 @@ const updatePrompt = async (req, res) => {
       batch_id,
     } = existingPrompt.rows[0];
 
+    // Use provided values or fall back to existing
+    const new_user_content = user_content !== undefined ? user_content : existing_user_content;
+    const new_json_content = json_content !== undefined ? json_content : existing_json_content;
+    const new_additional_content = additional_content !== undefined ? additional_content : existing_additional_content;
+
+    // Check if any changes were provided
+    if (
+      new_user_content === existing_user_content &&
+      new_json_content === existing_json_content &&
+      new_additional_content === existing_additional_content
+    ) {
+      await pool.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "No changes provided. At least one field (user_content, json_content, or additional_content) must be updated.",
+      });
+    }
+
     // Archive the existing prompt
     await pool.query(
       "UPDATE prompts SET isarchived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE prompt_id = $1",
       [prompt_id]
     );
-
-    // Use provided json_content or fall back to existing json_content
-    const new_json_content =
-      json_content !== undefined ? json_content : existing_json_content;
-    // Use provided additional_content or fall back to existing additional_content
-    const new_additional_content =
-      additional_content !== undefined
-        ? additional_content
-        : existing_additional_content;
 
     // Insert new prompt with incremented version using a CTE
     const result = await pool.query(
@@ -462,7 +464,7 @@ const updatePrompt = async (req, res) => {
       `,
       [
         prompt_type,
-        user_content,
+        new_user_content,
         new_json_content,
         new_additional_content,
         version + 1,
@@ -475,7 +477,9 @@ const updatePrompt = async (req, res) => {
     await pool.query("COMMIT");
 
     const prompt = result.rows[0];
-    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${prompt.additional_content || ""}`;
+    const prompt_content = `${prompt.user_content} ${prompt.json_content} ${
+      prompt.additional_content || ""
+    }`;
     console.log("updatePrompt: prompt_content length:", prompt_content.length);
     res.json({
       success: true,
@@ -493,7 +497,9 @@ const updatePrompt = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad request",
-        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${organization_id || "NULL"}', and batch_id '${batch_id || "NULL"}' already exists`,
+        message: `A non-archived prompt with prompt_type '${prompt_type}', prompt_level '${prompt_level}', organization_id '${
+          organization_id || "NULL"
+        }', and batch_id '${batch_id || "NULL"}' already exists`,
       });
     }
     console.error("Error updating prompt:", error);
@@ -504,6 +510,7 @@ const updatePrompt = async (req, res) => {
     });
   }
 };
+
 
 const getPrompts = async (req, res) => {
   const { scope, organization_id, batch_id } = req.query;
