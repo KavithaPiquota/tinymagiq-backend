@@ -869,7 +869,7 @@ const updateAssignment = async (req, res) => {
     }
     if (
       effectiveLevel === "global" &&
-      (effectiveOrgId !== undefined || batch_id !== undefined)
+      (effectiveOrgId !== null || batch_id !== null)
     ) {
       return res.status(400).json({
         success: false,
