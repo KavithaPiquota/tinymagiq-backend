@@ -1191,7 +1191,14 @@ const processLLM = async (req, res) => {
       name: `org-processLLM-${organizationName}`,
       userId: safeUsername,
       sessionId: organizationName, // Separate: just orgName
+      tags: [
+    "organization",
+    selectedPrompt,
+    selectedModel,
+    `org-${organizationName}`,
+  ],
       metadata: {
+        username: safeUsername,
         organizationName,
         organizationId,
         selectedModel,
@@ -1216,7 +1223,15 @@ const processLLM = async (req, res) => {
       name: `batch-processLLM-${batchName}`,
       userId: safeUsername,
       sessionId: batchName, // Separate: just batchName
+      tags: [
+    "batch",
+    selectedPrompt,
+    selectedModel,
+    `batch-${batchName}`,
+    `org-${organizationName}`,
+  ],
       metadata: {
+        username: safeUsername,
         organizationName, // Separate field for org cross-ref
         batchName,
         batchId,
