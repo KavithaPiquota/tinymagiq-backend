@@ -94,6 +94,7 @@ const transcribeAudio = async (req, res) => {
       file: new File([cleanedBuffer], "audio.wav", { type: "audio/wav" }),
       model: "whisper-1",
       language: "en",
+      task: "translate", // ensures non-English speech is translated to English
     });
 
     res.status(200).json({
