@@ -573,7 +573,7 @@ const addOrguser = async (req, res) => {
       "SELECT role_id FROM roles WHERE role = $1",
       ["orguser"]
     );
-    if (result.rows.length === 0) {
+    if (roleResult.rows.length === 0) {  // FIXED: Changed 'result' to 'roleResult'
       return res.status(400).json({
         success: false,
         error: "Bad request",
