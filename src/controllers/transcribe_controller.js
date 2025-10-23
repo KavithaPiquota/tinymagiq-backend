@@ -33,8 +33,7 @@ const upload = multer({
 // 🔹 Helper: Get OpenAI API key from DB
 const getOpenAIApiKey = async () => {
   const result = await pool.query("SELECT api_key FROM keys LIMIT 1");
-  if (result.rows.length === 0)
-    throw new Error("No API key found in the keys table");
+  if (result.rows.length === 0) throw new Error("No API key found in the keys table");
   return result.rows[0].api_key;
 };
 
@@ -60,7 +59,7 @@ const denoiseAudio = (inputBuffer) => {
       .audioFilters([
         "afftdn=nf=-25",
         "loudnorm",
-        "silenceremove=start_periods=1:start_silence=0.5:stop_periods=-1:stop_threshold=-50dB",
+        "silenceremove=stop_periods=-1:stop_duration=1:stop_threshold=-40dB"
       ])
       .audioCodec("pcm_s16le")
       .format("wav")
@@ -72,7 +71,18 @@ const denoiseAudio = (inputBuffer) => {
   });
 };
 
-// 🔹 Main Controller
+const hasSpeech = (buffer) => {
+  // Remove WAV header (44 bytes) to get raw PCM 16-bit samples
+  const pcmBuffer = buffer.slice(44);
+  let sum = 0;
+  for (let i = 0; i < pcmBuffer.length; i += 2) {
+    const val = pcmBuffer.readInt16LE(i);
+    sum += Math.abs(val);
+  }
+  const avgLevel = sum / (pcmBuffer.length / 2);
+  return avgLevel > 700; // You can experiment with 500/700/900 as needed
+};
+
 const transcribeAudio = async (req, res) => {
   try {
     if (!req.file) {
@@ -89,18 +99,40 @@ const transcribeAudio = async (req, res) => {
     // Step 1: Denoise audio in-memory
     const cleanedBuffer = await denoiseAudio(req.file.buffer);
 
-    // Step 2: Send cleaned audio to Whisper
+    // Amplitude-based speech detection
+    if (!hasSpeech(cleanedBuffer)) {
+      return res.status(200).json({
+        success: true,
+        data: { transcription: "" },
+        message: "No speech detected based on amplitude threshold",
+      });
+    }
+
+    if (cleanedBuffer.length < 3200) {
+      return res.status(200).json({
+        success: true,
+        data: { transcription: "" },
+        message: "Audio too short after noise reduction",
+      });
+    }
+
     const transcription = await openai.audio.transcriptions.create({
       file: new File([cleanedBuffer], "audio.wav", { type: "audio/wav" }),
       model: "whisper-1",
       language: "en",
-      task: "translate", // ensures non-English speech is translated to English
+      task: "translate",
     });
+
+    let resultTxt = transcription.text.trim();
+    // Filter undesirable hallucination outputs
+    if (resultTxt.length < 6 || /^(thank you|bye|okay|silence|sure)\b/i.test(resultTxt)) {
+      resultTxt = "";
+    }
 
     res.status(200).json({
       success: true,
-      data: { transcription: transcription.text },
-      message: "Audio transcribed successfully with noise cancellation",
+      data: { transcription: resultTxt },
+      message: resultTxt === "" ? "No speech detected — please try again." : "Audio transcribed successfully",
     });
   } catch (error) {
     console.error("Error transcribing audio:", error);
