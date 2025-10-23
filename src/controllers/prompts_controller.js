@@ -1148,6 +1148,7 @@ const processLLM = async (req, res) => {
 
   let orgTrace;
   let batchTrace;
+  let podTrace;
   let openai; // Model-specific client
   try {
     // Validate inputs - model_id now required
@@ -1180,22 +1181,32 @@ const processLLM = async (req, res) => {
     );
     const batchName = batchResult.rows[0]?.batch_name || "unknown";
 
+    const podResult = await pool.query(
+  `SELECT pod_name 
+   FROM pods 
+   WHERE batch_id = $1 AND is_active = TRUE 
+   ORDER BY created_at DESC 
+   LIMIT 1`,
+  [batchId]
+);
+const podName = podResult.rows[0]?.pod_name || "unknown";
+
     // Initialize model-specific OpenAI client
     console.log(`Initializing OpenAI client for model_id ${model_id}...`);
     openai = await initializeOpenAIForModel(model_id);
 
     const safeUsername = sanitizeUsername(username);
-    // Create Langfuse trace
-    // Create organization-level trace (independent)
     orgTrace = langfuse.trace({
-      name: `org-processLLM-${organizationName}`,
+      name: `ORG-${organizationName}`,
       userId: safeUsername,
       sessionId: organizationName, // Separate: just orgName
       tags: [
     "organization",
     selectedPrompt,
     selectedModel,
-    `org-${organizationName}`,
+    `ORG-${organizationName}`,
+    username,
+    `POD-${podName}`,
   ],
       metadata: {
         username: safeUsername,
@@ -1206,29 +1217,28 @@ const processLLM = async (req, res) => {
         // Add batch info for cross-ref
         batchName,
         batchId,
-        model_id,
+        podName
+       
       },
     });
-
-    // Add a light span to orgTrace for visibility (logs request start)
     const orgInitSpan = orgTrace.span({
       name: "request-init",
       input: { username: safeUsername, selectedPrompt, selectedModel },
       output: { status: "started" },
     });
-    orgInitSpan.end(); // End immediately after creation
-
-    // Create batch-level trace (independent, no parent link)
+    orgInitSpan.end();
     batchTrace = langfuse.trace({
-      name: `batch-processLLM-${batchName}`,
+      name: `BATCH-${batchName}`,
       userId: safeUsername,
       sessionId: batchName, // Separate: just batchName
       tags: [
     "batch",
     selectedPrompt,
     selectedModel,
-    `batch-${batchName}`,
-    `org-${organizationName}`,
+    `BATCH-${batchName}`,
+    `ORG-${organizationName}`,
+    username,
+    `POD-${podName}`,
   ],
       metadata: {
         username: safeUsername,
@@ -1239,11 +1249,45 @@ const processLLM = async (req, res) => {
         selectedPrompt,
         conceptName: selectedConcept?.concept_name,
         model_id,
+        podName
+      },
+    });
+    podTrace = langfuse.trace({
+      name: `POD-${podName}`,
+      userId: safeUsername,
+      sessionId: podName, // Separate: just podName
+      tags: [
+        "pod",
+        selectedPrompt,
+        selectedModel,
+        `POD-${podName}`,
+        `ORG-${organizationName}`,
+        `BATCH-${batchName}`,
+        username,
+      ],
+      metadata: {
+        username: safeUsername,
+        organizationName, // Separate field for org cross-ref
+        batchName, // Separate field for batch cross-ref
+        podName,
+        batchId,
+        selectedModel,
+        selectedPrompt,
+        conceptName: selectedConcept?.concept_name,
+        model_id,
       },
     });
 
     // Create a span for template loading
     const templateSpan = batchTrace.span({
+      name: "load-template",
+      input: { selectedPrompt, organizationId, batchId },
+    });
+    const podTemplateSpan = podTrace.span({
+      name: "load-template",
+      input: { selectedPrompt, organizationId, batchId },
+    });
+    const orgTemplateSpan = orgTrace.span({
       name: "load-template",
       input: { selectedPrompt, organizationId, batchId },
     });
@@ -1259,9 +1303,23 @@ const processLLM = async (req, res) => {
     templateSpan.end({
       output: { templateContent: templateContent.substring(0, 100) + "..." },
     });
+    podTemplateSpan.end({
+      output: { templateContent: templateContent.substring(0, 100) + "..." },
+    });
+    orgTemplateSpan.end({
+      output: { templateContent: templateContent.substring(0, 100) + "..." },
+    });
 
     // Create a span for template processing
     const processSpan = batchTrace.span({
+      name: "process-template",
+      input: { templateContent, selectedConcept },
+    });
+    const podProcessSpan = podTrace.span({
+      name: "process-template",
+      input: { templateContent, selectedConcept },
+    });
+    const orgProcessSpan = orgTrace.span({
       name: "process-template",
       input: { templateContent, selectedConcept },
     });
@@ -1273,6 +1331,18 @@ const processLLM = async (req, res) => {
       selectedConcept
     );
     processSpan.end({
+      output: {
+        processedSystemContent:
+          processedSystemContent.substring(0, 100) + "...",
+      },
+    });
+    podProcessSpan.end({
+      output: {
+        processedSystemContent:
+          processedSystemContent.substring(0, 100) + "...",
+      },
+    });
+    orgProcessSpan.end({
       output: {
         processedSystemContent:
           processedSystemContent.substring(0, 100) + "...",
@@ -1302,6 +1372,28 @@ const processLLM = async (req, res) => {
 
     // Create a generation for the OpenAI API call
     const generation = batchTrace.generation({
+      name: "openai-chat-completion",
+      model: selectedModel,
+      input: messages,
+      metadata: {
+        maxTokens: selectedPrompt === "assessmentPrompt" ? 6000 : 4000,
+        temperature: 0.7,
+        topP: 1,
+        stream: selectedPrompt === "assessmentPrompt",
+      },
+    });
+    const podGeneration = podTrace.generation({
+      name: "openai-chat-completion",
+      model: selectedModel,
+      input: messages,
+      metadata: {
+        maxTokens: selectedPrompt === "assessmentPrompt" ? 6000 : 4000,
+        temperature: 0.7,
+        topP: 1,
+        stream: selectedPrompt === "assessmentPrompt",
+      },
+    });
+    const orgGeneration = orgTrace.generation({
       name: "openai-chat-completion",
       model: selectedModel,
       input: messages,
@@ -1351,6 +1443,14 @@ const processLLM = async (req, res) => {
 
     // Log completion to Langfuse
     generation.end({
+      output: responseText,
+      latency: (endTime - startTime) / 1000,
+    });
+    podGeneration.end({
+      output: responseText,
+      latency: (endTime - startTime) / 1000,
+    });
+    orgGeneration.end({
       output: responseText,
       latency: (endTime - startTime) / 1000,
     });
@@ -1486,6 +1586,13 @@ const processLLM = async (req, res) => {
     // Log error to batchTrace (or orgTrace if batchTrace not created)
     if (batchTrace) {
       batchTrace.span({
+        name: "error",
+        input: { errorMessage: error.message },
+        output: { status: "failed" },
+      });
+    }
+    if (podTrace) {
+      podTrace.span({
         name: "error",
         input: { errorMessage: error.message },
         output: { status: "failed" },
