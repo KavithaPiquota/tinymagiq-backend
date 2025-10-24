@@ -7,6 +7,35 @@ require("dotenv").config();
 const IV_LENGTH = 12; // For GCM
 const ALGORITHM = "aes-256-gcm";
 
+// New decryption function for login payload
+const decryptPayload = (encryptedPayload) => {
+  try {
+    if (!process.env.JWT_ENCRYPTION_KEY) {
+      console.error("JWT_ENCRYPTION_KEY is missing!");
+      return null;
+    }
+    const key = Buffer.from(process.env.JWT_ENCRYPTION_KEY, "base64");
+    if (key.length !== 32) {
+      console.error("Invalid JWT_ENCRYPTION_KEY length");
+      return null;
+    }
+    const data = Buffer.from(encryptedPayload, "base64");
+    const iv = data.slice(0, IV_LENGTH);
+    const authTag = data.slice(IV_LENGTH, IV_LENGTH + 16);
+    const encrypted = data.slice(IV_LENGTH + 16);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([
+      decipher.update(encrypted),
+      decipher.final(),
+    ]);
+    return decrypted.toString("utf8");
+  } catch (error) {
+    console.error("Payload decryption failed:", error.message);
+    return null;
+  }
+};
+
 const encryptToken = (token) => {
   const iv = crypto.randomBytes(IV_LENGTH);
   const key = Buffer.from(process.env.JWT_ENCRYPTION_KEY, "base64");
@@ -544,7 +573,7 @@ const addOrguser = async (req, res) => {
       "SELECT role_id FROM roles WHERE role = $1",
       ["orguser"]
     );
-    if (roleResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(400).json({
         success: false,
         error: "Bad request",
@@ -833,26 +862,65 @@ const changePassword = async (req, res) => {
 // Maximum login attempts and lockout duration
 const MAX_LOGIN_ATTEMPTS = 3;
 const LOCKOUT_DURATION_MINUTES = 10;
-//  const backfillEmailHash = async () => {
-//    const users = await pool.query('SELECT user_id, email FROM users WHERE email_hash IS NULL OR email_hash = \'\'');
 
-//    for (const user of users.rows) {
-//      if (!user.email) continue;
-//      const hash = crypto.createHash('md5').update(user.email.trim().toLowerCase()).digest('hex');
-//      await pool.query('UPDATE users SET email_hash = $1 WHERE user_id = $2', [hash, user.user_id]);
-//      console.log(`Updated user_id ${user.user_id} with hash ${hash}`);
-//    }
-//    console.log('✅ Backfill completed');
-//  }
+const backfillEmailHash = async () => {
+  const users = await pool.query(
+    "SELECT user_id, email FROM users WHERE email_hash IS NULL OR email_hash = ''"
+  );
+
+  for (const user of users.rows) {
+    if (!user.email) continue;
+    const hash = crypto
+      .createHash("md5")
+      .update(user.email.trim().toLowerCase())
+      .digest("hex");
+    await pool.query("UPDATE users SET email_hash = $1 WHERE user_id = $2", [
+      hash,
+      user.user_id,
+    ]);
+    console.log(`Updated user_id ${user.user_id} with hash ${hash}`);
+  }
+  console.log("✅ Backfill completed");
+};
 
 const loginUser = async (req, res) => {
-  const { identifier, password } = req.body;
+  const { encryptedPayload } = req.body;
 
-  if (!identifier || !password) {
+  if (!encryptedPayload) {
     return res.status(400).json({
       success: false,
       error: "Bad request",
-      message: "Identifier (email or username) and password are required",
+      message: "Encrypted payload is required",
+    });
+  }
+
+  let identifier, password;
+  try {
+    const decrypted = decryptPayload(encryptedPayload);
+    if (!decrypted) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "Decryption failed: Invalid payload or key",
+      });
+    }
+    const payload = JSON.parse(decrypted);
+    identifier = payload.identifier;
+    password = payload.password;
+
+    if (!identifier || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad request",
+        message: "Identifier (email or username) and password are required",
+      });
+    }
+  } catch (error) {
+    console.error("Error decrypting payload:", error);
+    return res.status(400).json({
+      success: false,
+      error: "Bad request",
+      message: "Decryption failed: Invalid payload format",
     });
   }
 
@@ -998,7 +1066,7 @@ const loginUser = async (req, res) => {
         is_active: user.is_active,
         is_default_password:
           user.role === "orguser" ? user.is_default_password : false,
-        encrypted_token: encryptedToken, // Changed from 'token' to 'encrypted_token'
+        token: encryptedToken,
       },
       message: "Login successful",
     });
@@ -1368,7 +1436,7 @@ module.exports = {
   addOrguser,
   updateUser,
   loginUser,
-  //backfillEmailHash,
+  backfillEmailHash,
   logoutUser,
   verifyUser,
   getAllUsers,
