@@ -19,7 +19,8 @@ const corsOptions = {
         origin ||
           "https://nextgenlearn.magiqspark.ai" ||
           "https://tinymagiq.yoweb.fun" ||
-          "https://tinymagiq-backend-f1tn.onrender.com"
+          "https://tinymagiq-backend-f1tn.onrender.com" ||
+          "https://tiny-magic-1.onrender.com"
       );
     } else {
       callback(new Error(`CORS error: Origin ${origin} not allowed`));
