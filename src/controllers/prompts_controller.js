@@ -127,6 +127,7 @@ const processTemplate = (
     "{{REFLECTION_QUESTIONS}}": selectedConcept.reflection_questions || "",
     "{{STRENGTH_CHECKLIST}}": selectedConcept.strength_checklist || "",
     "{{CONVERSATION_HISTORY_PLACEHOLDER}}": conversationHistory || "",
+    "{{PRACTICE_SESSION_DATA}}": conversationHistory || "",
   };
 
   Object.entries(replacements).forEach(([placeholder, value]) => {
