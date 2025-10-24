@@ -17,7 +17,7 @@ const app = express();
 const ALLOWED_HOSTS = [
   "nextgenlearn.api.magiqspark.ai",
   "localhost:5000", // Allow localhost for development
-  "https://tiny-magic-1.onrender.com",
+  "tiny-magic-1.onrender.com",
 ];
 
 // Host header validation middleware
