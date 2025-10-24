@@ -18,6 +18,7 @@ const ALLOWED_HOSTS = [
   "nextgenlearn.api.magiqspark.ai",
   "localhost:5000", // Allow localhost for development
   "tiny-magic-1.onrender.com",
+  "tiny-magic-renderbackend.onrender.com",
 ];
 
 // Host header validation middleware

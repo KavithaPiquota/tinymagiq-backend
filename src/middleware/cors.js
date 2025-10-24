@@ -12,6 +12,7 @@ const corsOptions = {
       "127.0.0.1", // Allow Nginx internal connection
       "127.0.0.1:5000", // Allow Nginx internal connection with port
       "localhost", // Allow Nginx internal connection without port
+      "https://tiny-magic-fwgb.onrender.com",
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(
@@ -20,7 +21,8 @@ const corsOptions = {
           "https://nextgenlearn.magiqspark.ai" ||
           "https://tinymagiq.yoweb.fun" ||
           "https://tinymagiq-backend-f1tn.onrender.com" ||
-          "https://tiny-magic-1.onrender.com"
+          "https://tiny-magic-1.onrender.com" ||
+          "https://tiny-magic-fwgb.onrender.com"
       );
     } else {
       callback(new Error(`CORS error: Origin ${origin} not allowed`));
