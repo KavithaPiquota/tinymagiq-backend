@@ -8,6 +8,7 @@ const corsOptions = {
       "https://tiny-magic-7oa7.onrender.com",
       "http://localhost:3000",
       "http://localhost:3001",
+      "https://tiny-magic-1.onrender.com",
       "127.0.0.1", // Allow Nginx internal connection
       "127.0.0.1:5000", // Allow Nginx internal connection with port
       "localhost", // Allow Nginx internal connection without port
