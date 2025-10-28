@@ -19,6 +19,7 @@ const ALLOWED_HOSTS = [
   "localhost:5000", // Allow localhost for development
   "tiny-magic-1.onrender.com",
   "tiny-magic-renderbackend.onrender.com",
+  "tinymagiq-backend-71wo.onrender.com",
 ];
 
 // Host header validation middleware
