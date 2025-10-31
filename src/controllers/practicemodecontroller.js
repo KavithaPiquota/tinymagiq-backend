@@ -16,16 +16,16 @@ class practicemodeController {
                 // Scoring fields (only saved when status is 'completed')
                 scoring_data, // Expected to contain the parsed scoring object from frontend
                 overall_performance,
-    facet_ratings_explanation,
-    facet_ratings_interpretation,
-    facet_ratings_application,
-    facet_ratings_perspective,
-    facet_ratings_empathy,
-    facet_ratings_self_knowledge,
-    key_patterns,
-    recommended_focus_areas,
-    personalized_next_steps,
-    session_summary
+                facet_ratings_explanation,
+                facet_ratings_interpretation,
+                facet_ratings_application,
+                facet_ratings_perspective,
+                facet_ratings_empathy,
+                facet_ratings_self_knowledge,
+                key_patterns,
+                recommended_focus_areas,
+                personalized_next_steps,
+                session_summary
             } = req.body;
 
             if (!user_id || !conversation) {
@@ -90,37 +90,70 @@ class practicemodeController {
                 final_weighted_score: null
             };
 
+            // Initialize extracted fields from final_assessment (override if provided in body)
+            let extracted_overall_performance = overall_performance || null;
+            let extracted_facet_ratings_explanation = facet_ratings_explanation || null;
+            let extracted_facet_ratings_interpretation = facet_ratings_interpretation || null;
+            let extracted_facet_ratings_application = facet_ratings_application || null;
+            let extracted_facet_ratings_perspective = facet_ratings_perspective || null;
+            let extracted_facet_ratings_empathy = facet_ratings_empathy || null;
+            let extracted_facet_ratings_self_knowledge = facet_ratings_self_knowledge || null;
+            let extracted_key_patterns = key_patterns || null;
+            let extracted_recommended_focus_areas = recommended_focus_areas || null;
+            let extracted_personalized_next_steps = personalized_next_steps || null;
+            let extracted_session_summary = session_summary || null;
+
             if (finalStatus === 'completed' && scoring_data) {
-                console.log("📊 Processing scoring data for completed practicemode");
+                console.log("📊 Processing scoring data for completed practicemode:", JSON.stringify(scoring_data, null, 2));
                 
-                // Extract Six Facets scores
-                if (scoring_data.SixFacets) {
-                    const sixFacets = scoring_data.SixFacets;
-                    scoringFields.explanation_score = sixFacets.Explanation?.score || null;
-                    scoringFields.interpretation_score = sixFacets.Interpretation?.score || null;
-                    scoringFields.application_score = sixFacets.Application?.score || null;
-                    scoringFields.perspective_score = sixFacets.Perspective?.score || null;
-                    scoringFields.empathy_score = sixFacets.Empathy?.score || null;
-                    scoringFields.self_knowledge_score = sixFacets['Self-Knowledge']?.score || null;
-                    scoringFields.six_facets_average = sixFacets.OverallScore || null;
-                }
+                const sixFacets = scoring_data.six_facets || {};
+                
+                // Extract and coerce to numbers (handle strings like "1.33")
+                scoringFields.explanation_score = sixFacets.explanation != null ? parseFloat(sixFacets.explanation) : null;
+                scoringFields.interpretation_score = sixFacets.interpretation != null ? parseFloat(sixFacets.interpretation) : null;
+                scoringFields.application_score = sixFacets.application != null ? parseFloat(sixFacets.application) : null;
+                scoringFields.perspective_score = sixFacets.perspective != null ? parseFloat(sixFacets.perspective) : null;
+                scoringFields.empathy_score = sixFacets.empathy != null ? parseFloat(sixFacets.empathy) : null;
+                scoringFields.self_knowledge_score = sixFacets.self_knowledge != null ? parseFloat(sixFacets.self_knowledge) : null;
 
-                // Extract Understanding Skills scores
-                if (scoring_data.UnderstandingSkills) {
-                    const skills = scoring_data.UnderstandingSkills;
-                    scoringFields.asking_questions_score = skills.AskingQuestions?.score || null;
-                    scoringFields.clarifying_ambiguity_score = skills.ClarifyingAmbiguity?.score || null;
-                    scoringFields.summarizing_confirming_score = skills.SummarizingConfirming?.score || null;
-                    scoringFields.challenging_ideas_score = skills.ChallengingIdeas?.score || null;
-                    scoringFields.comparing_concepts_score = skills.ComparingConcepts?.score || null;
-                    scoringFields.abstract_concrete_score = skills.AbstractConcrete?.score || null;
-                    scoringFields.understanding_skills_average = skills.OverallScore || null;
-                }
+                // No UnderstandingSkills in new structure, set to null
+                scoringFields.asking_questions_score = null;
+                scoringFields.clarifying_ambiguity_score = null;
+                scoringFields.summarizing_confirming_score = null;
+                scoringFields.challenging_ideas_score = null;
+                scoringFields.comparing_concepts_score = null;
+                scoringFields.abstract_concrete_score = null;
+                scoringFields.understanding_skills_average = null;
 
-                // Extract final weighted score
-                scoringFields.final_weighted_score = scoring_data.FinalWeightedScore || null;
+                // Set averages and final score (coerce to numbers)
+                scoringFields.six_facets_average = sixFacets.average != null ? parseFloat(sixFacets.average) : null;
+                scoringFields.final_weighted_score = scoring_data.overall_performance_score != null ? parseFloat(scoring_data.overall_performance_score) : null;
+
+                // Validate: Warn if any required score is invalid
+                const invalidScores = Object.entries(sixFacets).filter(([key, val]) => key !== 'average' && (val == null || isNaN(parseFloat(val))));
+                if (invalidScores.length > 0) {
+                    console.warn("⚠️ Incomplete six_facets scores:", invalidScores);
+                }
 
                 console.log("📊 Extracted scoring fields:", scoringFields);
+
+                // Extract additional fields from scoring_data.final_assessment if present
+                if (scoring_data.final_assessment) {
+                    const fa = scoring_data.final_assessment;
+                    const facets = fa.facet_assessments || {};
+
+                    extracted_overall_performance = fa.overall_assessment?.summary || extracted_overall_performance;
+                    extracted_facet_ratings_explanation = facets.explanation?.developmental_notes || extracted_facet_ratings_explanation;
+                    extracted_facet_ratings_interpretation = facets.interpretation?.developmental_notes || extracted_facet_ratings_interpretation;
+                    extracted_facet_ratings_application = facets.application?.developmental_notes || extracted_facet_ratings_application;
+                    extracted_facet_ratings_perspective = facets.perspective?.developmental_notes || extracted_facet_ratings_perspective;
+                    extracted_facet_ratings_empathy = facets.empathy?.developmental_notes || extracted_facet_ratings_empathy;
+                    extracted_facet_ratings_self_knowledge = facets.self_knowledge?.developmental_notes || extracted_facet_ratings_self_knowledge;
+                    extracted_key_patterns = JSON.stringify(fa.pattern_analysis) || extracted_key_patterns;
+                    extracted_recommended_focus_areas = JSON.stringify(fa.personalized_feedback?.priority_growth_areas) || extracted_recommended_focus_areas;
+                    extracted_personalized_next_steps = JSON.stringify(fa.next_steps) || extracted_personalized_next_steps;
+                    extracted_session_summary = fa.overall_assessment?.summary || extracted_session_summary; // Or customize as needed
+                }
             }
 
             console.log(`💾 Creating practicemode for ${user_id} with concept: "${finalConceptName}" status: ${finalStatus}, stage: ${finalStage}`);
@@ -146,46 +179,46 @@ class practicemodeController {
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) 
                     RETURNING id, created_at, updated_at`;
                     
-                   insertParams = [
-    user_id, 
-    JSON.stringify(conversation), 
-    finalStatus, 
-    finalStage, 
-    finalConceptName,
-    scoringFields.explanation_score,
-    scoringFields.interpretation_score,
-    scoringFields.application_score,
-    scoringFields.perspective_score,
-    scoringFields.empathy_score,
-    scoringFields.self_knowledge_score,
-    scoringFields.asking_questions_score,
-    scoringFields.clarifying_ambiguity_score,
-    scoringFields.summarizing_confirming_score,
-    scoringFields.challenging_ideas_score,
-    scoringFields.comparing_concepts_score,
-    scoringFields.abstract_concrete_score,
-    scoringFields.six_facets_average,
-    scoringFields.understanding_skills_average,
-    scoringFields.final_weighted_score,
-    overall_performance,
-    facet_ratings_explanation,
-    facet_ratings_interpretation,
-    facet_ratings_application,
-    facet_ratings_perspective,
-    facet_ratings_empathy,
-    facet_ratings_self_knowledge,
-    key_patterns,
-    recommended_focus_areas,
-    personalized_next_steps,
-    session_summary
-];
+                    insertParams = [
+                        user_id, 
+                        JSON.stringify(conversation), 
+                        finalStatus, 
+                        finalStage, 
+                        finalConceptName,
+                        scoringFields.explanation_score,
+                        scoringFields.interpretation_score,
+                        scoringFields.application_score,
+                        scoringFields.perspective_score,
+                        scoringFields.empathy_score,
+                        scoringFields.self_knowledge_score,
+                        scoringFields.asking_questions_score,
+                        scoringFields.clarifying_ambiguity_score,
+                        scoringFields.summarizing_confirming_score,
+                        scoringFields.challenging_ideas_score,
+                        scoringFields.comparing_concepts_score,
+                        scoringFields.abstract_concrete_score,
+                        scoringFields.six_facets_average,
+                        scoringFields.understanding_skills_average,
+                        scoringFields.final_weighted_score,
+                        extracted_overall_performance,
+                        extracted_facet_ratings_explanation,
+                        extracted_facet_ratings_interpretation,
+                        extracted_facet_ratings_application,
+                        extracted_facet_ratings_perspective,
+                        extracted_facet_ratings_empathy,
+                        extracted_facet_ratings_self_knowledge,
+                        extracted_key_patterns,
+                        extracted_recommended_focus_areas,
+                        extracted_personalized_next_steps,
+                        extracted_session_summary
+                    ];
 
                 } else {
                     // Insert without scoring data
                     insertQuery = `INSERT INTO practicemode (user_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary) 
                                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) 
                                    RETURNING id, created_at, updated_at`;
-                    insertParams = [user_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary];
+                    insertParams = [user_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, extracted_overall_performance, extracted_facet_ratings_explanation, extracted_facet_ratings_interpretation, extracted_facet_ratings_application, extracted_facet_ratings_perspective, extracted_facet_ratings_empathy, extracted_facet_ratings_self_knowledge, extracted_key_patterns, extracted_recommended_focus_areas, extracted_personalized_next_steps, extracted_session_summary];
                 }
 
                 const insertResult = await client.query(insertQuery, insertParams);
@@ -206,17 +239,17 @@ class practicemodeController {
                     created_at: newpracticemode.created_at,
                     updated_at: newpracticemode.updated_at,
                     shouldStartFresh: false,
-                    overall_performance: overall_performance,
-                    facet_ratings_explanation: facet_ratings_explanation,
-                    facet_ratings_interpretation: facet_ratings_interpretation,
-                    facet_ratings_application: facet_ratings_application,
-                    facet_ratings_perspective: facet_ratings_perspective,
-                    facet_ratings_empathy: facet_ratings_empathy,
-                    facet_ratings_self_knowledge: facet_ratings_self_knowledge,
-                    key_patterns: key_patterns,
-                    recommended_focus_areas: recommended_focus_areas,
-                    personalized_next_steps: personalized_next_steps,
-                    session_summary: session_summary
+                    overall_performance: extracted_overall_performance,
+                    facet_ratings_explanation: extracted_facet_ratings_explanation,
+                    facet_ratings_interpretation: extracted_facet_ratings_interpretation,
+                    facet_ratings_application: extracted_facet_ratings_application,
+                    facet_ratings_perspective: extracted_facet_ratings_perspective,
+                    facet_ratings_empathy: extracted_facet_ratings_empathy,
+                    facet_ratings_self_knowledge: extracted_facet_ratings_self_knowledge,
+                    key_patterns: extracted_key_patterns,
+                    recommended_focus_areas: extracted_recommended_focus_areas,
+                    personalized_next_steps: extracted_personalized_next_steps,
+                    session_summary: extracted_session_summary
                 };
 
                 // Include scoring data in response if it was saved
@@ -411,16 +444,16 @@ class practicemodeController {
                 // Scoring fields (only saved when status is 'completed')
                 scoring_data, // Expected to contain the parsed scoring object from frontend
                 overall_performance,
-    facet_ratings_explanation,
-    facet_ratings_interpretation,
-    facet_ratings_application,
-    facet_ratings_perspective,
-    facet_ratings_empathy,
-    facet_ratings_self_knowledge,
-    key_patterns,
-    recommended_focus_areas,
-    personalized_next_steps,
-    session_summary
+                facet_ratings_explanation,
+                facet_ratings_interpretation,
+                facet_ratings_application,
+                facet_ratings_perspective,
+                facet_ratings_empathy,
+                facet_ratings_self_knowledge,
+                key_patterns,
+                recommended_focus_areas,
+                personalized_next_steps,
+                session_summary
             } = req.body;
 
             if (!practicemode_id || !conversation) {
@@ -507,37 +540,70 @@ class practicemodeController {
                     final_weighted_score: null
                 };
 
+                // Initialize extracted fields from final_assessment (override if provided in body)
+                let extracted_overall_performance = overall_performance || null;
+                let extracted_facet_ratings_explanation = facet_ratings_explanation || null;
+                let extracted_facet_ratings_interpretation = facet_ratings_interpretation || null;
+                let extracted_facet_ratings_application = facet_ratings_application || null;
+                let extracted_facet_ratings_perspective = facet_ratings_perspective || null;
+                let extracted_facet_ratings_empathy = facet_ratings_empathy || null;
+                let extracted_facet_ratings_self_knowledge = facet_ratings_self_knowledge || null;
+                let extracted_key_patterns = key_patterns || null;
+                let extracted_recommended_focus_areas = recommended_focus_areas || null;
+                let extracted_personalized_next_steps = personalized_next_steps || null;
+                let extracted_session_summary = session_summary || null;
+
                 if (finalStatus === 'completed' && scoring_data) {
-                    console.log("📊 Processing scoring data for completed practicemode update");
+                    console.log("📊 Processing scoring data for completed practicemode update:", JSON.stringify(scoring_data, null, 2));
                     
-                    // Extract Six Facets scores
-                    if (scoring_data.SixFacets) {
-                        const sixFacets = scoring_data.SixFacets;
-                        scoringFields.explanation_score = sixFacets.Explanation?.score || null;
-                        scoringFields.interpretation_score = sixFacets.Interpretation?.score || null;
-                        scoringFields.application_score = sixFacets.Application?.score || null;
-                        scoringFields.perspective_score = sixFacets.Perspective?.score || null;
-                        scoringFields.empathy_score = sixFacets.Empathy?.score || null;
-                        scoringFields.self_knowledge_score = sixFacets['Self-Knowledge']?.score || null;
-                        scoringFields.six_facets_average = sixFacets.OverallScore || null;
-                    }
+                    const sixFacets = scoring_data.six_facets || {};
+                    
+                    // Extract and coerce to numbers (handle strings like "1.33")
+                    scoringFields.explanation_score = sixFacets.explanation != null ? parseFloat(sixFacets.explanation) : null;
+                    scoringFields.interpretation_score = sixFacets.interpretation != null ? parseFloat(sixFacets.interpretation) : null;
+                    scoringFields.application_score = sixFacets.application != null ? parseFloat(sixFacets.application) : null;
+                    scoringFields.perspective_score = sixFacets.perspective != null ? parseFloat(sixFacets.perspective) : null;
+                    scoringFields.empathy_score = sixFacets.empathy != null ? parseFloat(sixFacets.empathy) : null;
+                    scoringFields.self_knowledge_score = sixFacets.self_knowledge != null ? parseFloat(sixFacets.self_knowledge) : null;
 
-                    // Extract Understanding Skills scores
-                    if (scoring_data.UnderstandingSkills) {
-                        const skills = scoring_data.UnderstandingSkills;
-                        scoringFields.asking_questions_score = skills.AskingQuestions?.score || null;
-                        scoringFields.clarifying_ambiguity_score = skills.ClarifyingAmbiguity?.score || null;
-                        scoringFields.summarizing_confirming_score = skills.SummarizingConfirming?.score || null;
-                        scoringFields.challenging_ideas_score = skills.ChallengingIdeas?.score || null;
-                        scoringFields.comparing_concepts_score = skills.ComparingConcepts?.score || null;
-                        scoringFields.abstract_concrete_score = skills.AbstractConcrete?.score || null;
-                        scoringFields.understanding_skills_average = skills.OverallScore || null;
-                    }
+                    // No UnderstandingSkills in new structure, set to null
+                    scoringFields.asking_questions_score = null;
+                    scoringFields.clarifying_ambiguity_score = null;
+                    scoringFields.summarizing_confirming_score = null;
+                    scoringFields.challenging_ideas_score = null;
+                    scoringFields.comparing_concepts_score = null;
+                    scoringFields.abstract_concrete_score = null;
+                    scoringFields.understanding_skills_average = null;
 
-                    // Extract final weighted score
-                    scoringFields.final_weighted_score = scoring_data.FinalWeightedScore || null;
+                    // Set averages and final score (coerce to numbers)
+                    scoringFields.six_facets_average = sixFacets.average != null ? parseFloat(sixFacets.average) : null;
+                    scoringFields.final_weighted_score = scoring_data.overall_performance_score != null ? parseFloat(scoring_data.overall_performance_score) : null;
+
+                    // Validate: Warn if any required score is invalid
+                    const invalidScores = Object.entries(sixFacets).filter(([key, val]) => key !== 'average' && (val == null || isNaN(parseFloat(val))));
+                    if (invalidScores.length > 0) {
+                        console.warn("⚠️ Incomplete six_facets scores:", invalidScores);
+                    }
 
                     console.log("📊 Extracted scoring fields for update:", scoringFields);
+
+                    // Extract additional fields from scoring_data.final_assessment if present
+                    if (scoring_data.final_assessment) {
+                        const fa = scoring_data.final_assessment;
+                        const facets = fa.facet_assessments || {};
+
+                        extracted_overall_performance = fa.overall_assessment?.summary || extracted_overall_performance;
+                        extracted_facet_ratings_explanation = facets.explanation?.developmental_notes || extracted_facet_ratings_explanation;
+                        extracted_facet_ratings_interpretation = facets.interpretation?.developmental_notes || extracted_facet_ratings_interpretation;
+                        extracted_facet_ratings_application = facets.application?.developmental_notes || extracted_facet_ratings_application;
+                        extracted_facet_ratings_perspective = facets.perspective?.developmental_notes || extracted_facet_ratings_perspective;
+                        extracted_facet_ratings_empathy = facets.empathy?.developmental_notes || extracted_facet_ratings_empathy;
+                        extracted_facet_ratings_self_knowledge = facets.self_knowledge?.developmental_notes || extracted_facet_ratings_self_knowledge;
+                        extracted_key_patterns = JSON.stringify(fa.pattern_analysis) || extracted_key_patterns;
+                        extracted_recommended_focus_areas = JSON.stringify(fa.personalized_feedback?.priority_growth_areas) || extracted_recommended_focus_areas;
+                        extracted_personalized_next_steps = JSON.stringify(fa.next_steps) || extracted_personalized_next_steps;
+                        extracted_session_summary = fa.overall_assessment?.summary || extracted_session_summary; // Or customize as needed
+                    }
                 }
 
                 let updateQuery, updateParams;
@@ -589,17 +655,17 @@ class practicemodeController {
                         scoringFields.six_facets_average,
                         scoringFields.understanding_skills_average,
                         scoringFields.final_weighted_score,
-                        overall_performance,
-                        facet_ratings_explanation,
-                        facet_ratings_interpretation,
-                        facet_ratings_application,
-                        facet_ratings_perspective,
-                        facet_ratings_empathy,
-                        facet_ratings_self_knowledge,
-                        key_patterns,
-                        recommended_focus_areas,
-                        personalized_next_steps,
-                        session_summary,
+                        extracted_overall_performance,
+                        extracted_facet_ratings_explanation,
+                        extracted_facet_ratings_interpretation,
+                        extracted_facet_ratings_application,
+                        extracted_facet_ratings_perspective,
+                        extracted_facet_ratings_empathy,
+                        extracted_facet_ratings_self_knowledge,
+                        extracted_key_patterns,
+                        extracted_recommended_focus_areas,
+                        extracted_personalized_next_steps,
+                        extracted_session_summary,
                         parseInt(practicemode_id)
                     ];
                 } else {
@@ -608,7 +674,7 @@ class practicemodeController {
                                    SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, overall_performance = $5, facet_ratings_explanation = $6, facet_ratings_interpretation = $7, facet_ratings_application = $8, facet_ratings_perspective = $9, facet_ratings_empathy = $10, facet_ratings_self_knowledge = $11, key_patterns = $12, recommended_focus_areas = $13, personalized_next_steps = $14, session_summary = $15, updated_at = CURRENT_TIMESTAMP 
                                    WHERE id = $16 
                                    RETURNING id, user_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at`;
-                    updateParams = [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, parseInt(practicemode_id)];
+                    updateParams = [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, extracted_overall_performance, extracted_facet_ratings_explanation, extracted_facet_ratings_interpretation, extracted_facet_ratings_application, extracted_facet_ratings_perspective, extracted_facet_ratings_empathy, extracted_facet_ratings_self_knowledge, extracted_key_patterns, extracted_recommended_focus_areas, extracted_personalized_next_steps, extracted_session_summary, parseInt(practicemode_id)];
                 }
 
                 const updateResult = await client.query(updateQuery, updateParams);
