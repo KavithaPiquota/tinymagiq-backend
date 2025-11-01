@@ -40,6 +40,7 @@ const getProgressReport = async (req, res) => {
     }
 
     let selectFields = `
+      DISTINCT ON (c.id)
       c.id,
       c.user_id,
       c.status,
@@ -52,20 +53,35 @@ const getProgressReport = async (req, res) => {
       u.email,
       u.username,
       o.organization_name,
-      pod_info.batch_name,
-      pod_info.pod_name,
-      COALESCE(
-        json_agg(
-          json_build_object(
-            'user_id', pm.user_id,
-            'first_name', pm.first_name,
-            'last_name', pm.last_name,
-            'email', pm.email,
-            'username', pm.username
-          )
-          ORDER BY pm.user_id
-        ) FILTER (WHERE pm.user_id IS NOT NULL),
-        '[]'::json
+      COALESCE(b.batch_name, pb.batch_name) as batch_name,
+      p.pod_name,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'user_id', pm2.user_id,
+              'first_name', pm2.first_name,
+              'last_name', pm2.last_name,
+              'email', pm2.email,
+              'username', pm2.username
+            )
+            ORDER BY pm2.user_id
+          ),
+          '[]'::json
+        )
+        FROM (
+          SELECT DISTINCT 
+            u2.user_id,
+            u2.first_name,
+            u2.last_name,
+            u2.email,
+            u2.username
+          FROM pod_mentors pm
+          JOIN users u2 ON pm.mentor_id = u2.user_id
+          JOIN roles r ON u2.role_id = r.role_id
+          WHERE r.role = 'mentor'
+          AND pm.pod_id = p.pod_id
+        ) pm2
       ) AS mentors,
       c.explanation_score,
       c.interpretation_score,
@@ -89,41 +105,12 @@ const getProgressReport = async (req, res) => {
       FROM chat c
       JOIN users u ON c.user_id::integer = u.user_id
       JOIN organizations o ON u.organization_id = o.organization_id
-      LEFT JOIN LATERAL (
-        -- Select exactly one pod per user (lowest pod_id for determinism; adjust ORDER BY if needed, e.g., p.created_at DESC)
-        SELECT p.pod_id, p.pod_name, b.batch_name
-        FROM (
-          SELECT DISTINCT pu.pod_id
-          FROM pod_users pu
-          WHERE pu.user_id = u.user_id
-        ) pu2
-        JOIN pods p ON pu2.pod_id = p.pod_id
-        JOIN batches b ON p.batch_id = b.batch_id
-        ORDER BY p.pod_id ASC
-        LIMIT 1
-      ) pod_info ON true
-      LEFT JOIN LATERAL (
-        -- Mentors for the selected pod
-        SELECT
-          pm2.user_id,
-          pm2.first_name,
-          pm2.last_name,
-          pm2.email,
-          pm2.username
-        FROM (
-          SELECT u2.user_id, u2.first_name, u2.last_name, u2.email, u2.username
-          FROM pod_mentors pm2_inner
-          JOIN users u2 ON pm2_inner.mentor_id = u2.user_id
-          JOIN roles r ON u2.role_id = r.role_id
-          WHERE pm2_inner.pod_id = pod_info.pod_id AND r.role = 'mentor'
-        ) pm2
-        ORDER BY pm2.user_id
-      ) pm ON true
+      LEFT JOIN batches b ON c.batch_id = b.batch_id
+      LEFT JOIN pod_users pu ON u.user_id = pu.user_id
+      LEFT JOIN pods p ON pu.pod_id = p.pod_id
+      LEFT JOIN batches pb ON p.batch_id = pb.batch_id
       WHERE c.user_id ~ '^[0-9]+$' -- Ensure user_id is numeric
     `;
-    // Alternative joins if user_id is not numeric:
-    // JOIN users u ON c.user_id = u.username
-    // JOIN users u ON c.user_id = u.email
 
     const values = [];
     const conditions = [];
@@ -149,13 +136,17 @@ const getProgressReport = async (req, res) => {
       values.push(`%${concept_name}%`);
     }
 
-    // Authorization logic to prevent IDOR (updated to use pod_info.pod_id)
+    // Enhanced authorization logic to prevent IDOR
     if (req.user.role === "mentor") {
       // Force filter to the authenticated mentor's own pods
-      conditions.push(`EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = pod_info.pod_id AND pm.mentor_id = $${values.length + 1})`);
+      conditions.push(`EXISTS (
+        SELECT 1 FROM pod_mentors pm 
+        WHERE pm.pod_id = p.pod_id 
+        AND pm.mentor_id = $${values.length + 1}
+      )`);
       values.push(req.user.user_id);
 
-      // Strictly forbid mismatched mentor_id
+      // Optional: Strictly forbid if query provides a mismatched mentor_id
       if (mentor_id && parseInt(mentor_id) !== req.user.user_id) {
         return res.status(403).json({
           success: false,
@@ -164,7 +155,7 @@ const getProgressReport = async (req, res) => {
         });
       }
 
-      // Handle mentor_email
+      // Similarly, handle mentor_email if provided (ignore or check)
       if (mentor_email && mentor_email !== req.user.email) {
         return res.status(403).json({
           success: false,
@@ -173,14 +164,23 @@ const getProgressReport = async (req, res) => {
         });
       }
     } else if (req.user.role === "orgadmin") {
-      // Allow flexible filtering for orgadmins
+      // Enhanced mentor filtering for orgadmins
       if (mentor_id) {
-        conditions.push(`EXISTS (SELECT 1 FROM pod_mentors pm WHERE pm.pod_id = pod_info.pod_id AND pm.mentor_id = $${values.length + 1})`);
+        conditions.push(`EXISTS (
+          SELECT 1 FROM pod_mentors pm 
+          WHERE pm.pod_id = p.pod_id 
+          AND pm.mentor_id = $${values.length + 1}
+        )`);
         values.push(parseInt(mentor_id));
       }
 
       if (mentor_email) {
-        conditions.push(`EXISTS (SELECT 1 FROM pod_mentors pm JOIN users mu ON pm.mentor_id = mu.user_id WHERE pm.pod_id = pod_info.pod_id AND mu.email = $${values.length + 1})`);
+        conditions.push(`EXISTS (
+          SELECT 1 FROM pod_mentors pm 
+          JOIN users mu ON pm.mentor_id = mu.user_id 
+          WHERE pm.pod_id = p.pod_id 
+          AND mu.email = $${values.length + 1}
+        )`);
         values.push(mentor_email);
       }
     }
@@ -189,19 +189,25 @@ const getProgressReport = async (req, res) => {
       query += ` AND ${conditions.join(" AND ")}`;
     }
 
-    query += ` GROUP BY
-      c.id, c.user_id, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at,
-      u.first_name, u.last_name, u.email, u.username, o.organization_name,
-      pod_info.batch_name, pod_info.pod_name,
-      c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score,
-      c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score,
-      c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score,
-      c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score
-      ORDER BY c.updated_at DESC`;
+    query += ` ORDER BY c.id, c.updated_at DESC`;
 
-    console.log("Executing query:", query, "with values:", values);
+    console.log("=== DEBUG: Executing Progress Report Query ===");
+    console.log("Mentor ID filter:", mentor_id);
+    console.log("Organization:", organization_name);
+    console.log("Request User Role:", req.user.role);
+    console.log("WHERE conditions:", conditions);
+    console.log("Query values:", values);
+    
     const result = await pool.query(query, values);
     const reports = result.rows;
+
+    // Sort the final results by updated_at DESC
+    reports.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+    console.log("Number of results:", reports.length);
+    console.log("Unique user_ids found:", [...new Set(reports.map(r => r.user_id))]);
+    console.log("Batch names found:", [...new Set(reports.map(r => r.batch_name).filter(Boolean))]);
+    console.log("=============================================");
 
     res.json({
       success: true,
