@@ -7,16 +7,19 @@ class ChatController {
 
     try {
       const {
+        
         conversation,
         status,
         current_stage,
         concept_name,
+        batch_id,
         // Scoring fields (only saved when status is 'completed')
         scoring_data, // Expected to contain the parsed scoring object from frontend
       } = req.body;
 
       // NEW: Force user_id from authenticated user (prevent creating for others)
       const user_id = req.user.user_id;
+      
 
       if (!user_id || !conversation) {
         return res.status(400).json({
@@ -25,6 +28,12 @@ class ChatController {
           details: "user_id and conversation are required",
         });
       }
+      if (!batch_id) {
+  return res.status(400).json({
+    success: false,
+    error: "batch_id required",
+  });
+}
 
       // concept_name validation (optional but if provided should not be empty)
       let finalConceptName = concept_name ? concept_name.trim() : null;
@@ -168,16 +177,17 @@ class ChatController {
         ) {
           // Insert with scoring data
           insertQuery = `INSERT INTO chat (
-                      user_id, conversation, status, current_stage, concept_name,
+                      user_id, batch_id, conversation, status, current_stage, concept_name,
                       explanation_score, interpretation_score, application_score, perspective_score, 
                       empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                       summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
                       abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) 
                   RETURNING id, created_at, updated_at`;
 
           insertParams = [
             user_id,
+            batch_id,
             JSON.stringify(conversation),
             finalStatus,
             finalStage,
@@ -200,11 +210,12 @@ class ChatController {
           ];
         } else {
           // Insert without scoring data
-          insertQuery = `INSERT INTO chat (user_id, conversation, status, current_stage, concept_name) 
-                                 VALUES ($1, $2, $3, $4, $5) 
+          insertQuery = `INSERT INTO chat (user_id, batch_id, conversation, status, current_stage, concept_name) 
+                                 VALUES ($1, $2, $3, $4, $5, $6) 
                                  RETURNING id, created_at, updated_at`;
           insertParams = [
             user_id,
+            batch_id,
             JSON.stringify(conversation),
             finalStatus,
             finalStage,
@@ -224,6 +235,7 @@ class ChatController {
         const responseData = {
           id: newChat.id,
           user_id,
+          batch_id,
           conversation,
           status: finalStatus,
           current_stage: finalStage,
@@ -300,7 +312,7 @@ class ChatController {
   async getSessionStatus(req, res, next) {
     try {
       const { user_id } = req.params;
-      const { concept_name } = req.query;
+      const { concept_name,batch_id } = req.query;
 
       // NEW: Ownership check - orguser can only access own, others can access any
       const requestedUserId = parseInt(user_id);
@@ -329,21 +341,39 @@ class ChatController {
 
       let query, params;
 
-      if (concept_name) {
-        query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
-                        FROM chat 
-                        WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND concept_name ILIKE $2
-                        ORDER BY updated_at DESC 
-                        LIMIT 1`;
-        params = [user_id, `%${concept_name}%`];
-      } else {
-        query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, updated_at 
+      if (concept_name && batch_id) {
+        query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, updated_at 
                         FROM chat 
                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
-                        ORDER BY updated_at DESC 
-                        LIMIT 1`;
-        params = [user_id];
-      }
+                      AND concept_name ILIKE $2 AND batch_id = $3
+                      ORDER BY updated_at DESC 
+                      LIMIT 1`;
+        params = [user_id, `%${concept_name}%`, batch_id];
+      } else if (batch_id) {
+      // ✅ Check for sessions with specific batch only
+      query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, updated_at 
+                      FROM chat 
+                      WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND batch_id = $2
+                      ORDER BY updated_at DESC 
+                      LIMIT 1`;
+      params = [user_id, batch_id];
+    } else if (concept_name) {
+      // Existing concept-only logic
+      query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, updated_at 
+                      FROM chat 
+                      WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND concept_name ILIKE $2
+                      ORDER BY updated_at DESC 
+                      LIMIT 1`;
+      params = [user_id, `%${concept_name}%`];
+    } else {
+      // Existing user-only logic
+      query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, updated_at 
+                      FROM chat 
+                      WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
+                      ORDER BY updated_at DESC 
+                      LIMIT 1`;
+      params = [user_id];
+    }
 
       const activeResult = await pool.query(query, params);
 
@@ -447,6 +477,7 @@ class ChatController {
     try {
       const { chat_id } = req.params;
       const {
+        batch_id,
         conversation,
         status,
         current_stage,
@@ -461,7 +492,12 @@ class ChatController {
           error: "Missing required fields: chat_id and conversation",
         });
       }
-
+      if (!batch_id) {
+  return res.status(400).json({
+    success: false,
+    error: "batch_id required",
+  });
+}
       // concept_name validation (optional but if provided should not be empty)
       let finalConceptName =
         concept_name !== undefined
@@ -634,16 +670,16 @@ class ChatController {
         ) {
           // Update with scoring data
           updateQuery = `UPDATE chat 
-                                 SET conversation = $1, status = $2, current_stage = $3, concept_name = $4,
-                                     explanation_score = $5, interpretation_score = $6, application_score = $7, 
-                                     perspective_score = $8, empathy_score = $9, self_knowledge_score = $10,
-                                     asking_questions_score = $11, clarifying_ambiguity_score = $12, 
-                                     summarizing_confirming_score = $13, challenging_ideas_score = $14, 
-                                     comparing_concepts_score = $15, abstract_concrete_score = $16,
-                                     six_facets_average = $17, understanding_skills_average = $18, 
-                                     final_weighted_score = $19, updated_at = CURRENT_TIMESTAMP 
-                                 WHERE id = $20 
-                                 RETURNING id, user_id, conversation, status, current_stage, concept_name, 
+                                 SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, batch_id = $5,
+                                     explanation_score = $6, interpretation_score = $7, application_score = $8, 
+                                     perspective_score = $9, empathy_score = $10, self_knowledge_score = $11,
+                                     asking_questions_score = $12, clarifying_ambiguity_score = $13, 
+                                     summarizing_confirming_score = $14, challenging_ideas_score = $15, 
+                                     comparing_concepts_score = $16, abstract_concrete_score = $17,
+                                     six_facets_average = $18, understanding_skills_average = $19, 
+                                     final_weighted_score = $20, updated_at = CURRENT_TIMESTAMP 
+                                 WHERE id = $21 
+                                 RETURNING id, user_id, conversation, status, current_stage, concept_name, batch_id,
                                           explanation_score, interpretation_score, application_score, perspective_score, 
                                           empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                                           summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
@@ -655,6 +691,7 @@ class ChatController {
             finalStatus,
             finalStage,
             finalConceptName,
+            batch_id,
             scoringFields.explanation_score,
             scoringFields.interpretation_score,
             scoringFields.application_score,
@@ -675,14 +712,15 @@ class ChatController {
         } else {
           // Update without scoring data
           updateQuery = `UPDATE chat 
-                                 SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, updated_at = CURRENT_TIMESTAMP 
-                                 WHERE id = $5 
-                                 RETURNING id, user_id, conversation, status, current_stage, concept_name, updated_at`;
+                                 SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, batch_id = $5, updated_at = CURRENT_TIMESTAMP 
+                                 WHERE id = $6 
+                                 RETURNING id, user_id, conversation, status, current_stage, concept_name, batch_id, updated_at`;
           updateParams = [
             JSON.stringify(conversation),
             finalStatus,
             finalStage,
             finalConceptName,
+            batch_id,
             parseInt(chat_id),
           ];
         }
@@ -849,18 +887,13 @@ class ChatController {
   }
 
   // Get chat history with concept_name and scoring data 
+// Get chat history with fixed JOINs to avoid duplicates
 async getChatHistory(req, res, next) {
   try {
     const { user_id } = req.params;
-    const {
-      status = "all",
-      limit = 20,
-      offset = 0,
-      stage,
-      concept,
-    } = req.query;
+    const { status = "all", stage, concept, limit = 10, offset = 0, batch_id } = req.query;  // Added batch_id param
 
-    // NEW: Ownership check - orguser can only access own history, others can access any
+    // Ownership check - unchanged
     const requestedUserId = parseInt(user_id);
     if (
       requestedUserId !== parseInt(req.user.user_id) &&
@@ -884,132 +917,75 @@ async getChatHistory(req, res, next) {
 
     // Updated SELECT to include scoring fields, user details, batch and pod info
     const selectFields = `c.id, c.user_id, c.conversation, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at,
-                              c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
-                              c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
-                              c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
-                              c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
-                              u.username, u.first_name, u.last_name, u.email,
-                              pu.batch_id, b.batch_name, p.pod_id, p.pod_name`;
+                          c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
+                          c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
+                          c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
+                          c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
+                          u.username, u.first_name, u.last_name, u.email,
+                          c.batch_id, b.batch_name, pu.pod_id, p.pod_name`;  // Use c.batch_id
 
-    // Base FROM clause with JOINs to get batch and pod info
+    // FIXED FROM CLAUSE: Anchor JOINs on c.batch_id to prevent cartesian product
     const fromClause = `FROM chat c 
-                            LEFT JOIN users u ON c.user_id::integer = u.user_id
-                            LEFT JOIN pod_users pu ON c.user_id::integer = pu.user_id
-                            LEFT JOIN batches b ON pu.batch_id = b.batch_id
-                            LEFT JOIN pods p ON pu.pod_id = p.pod_id`;
+                        LEFT JOIN users u ON c.user_id::integer = u.user_id
+                        LEFT JOIN batches b ON c.batch_id = b.batch_id  -- FIXED: Join on chat's batch_id
+                        LEFT JOIN pod_users pu ON c.user_id::integer = pu.user_id AND pu.batch_id = c.batch_id  -- FIXED: Match user's pod in chat's batch only
+                        LEFT JOIN pods p ON pu.pod_id = p.pod_id`;
+
+    // Base WHERE clause
+    let whereClause = `WHERE c.user_id = $1`;
+    params = [user_id];
+    let countWhereClause = `WHERE c.user_id = $1`;
+    countParams = [user_id];
+
+    // Optional batch_id filter (e.g., ?batch_id=2)
+    if (batch_id) {
+      whereClause += ` AND c.batch_id = $${params.length + 1}`;
+      params.push(parseInt(batch_id));
+      countWhereClause += ` AND c.batch_id = $${countParams.length + 1}`;
+      countParams.push(parseInt(batch_id));
+    }
 
     if (status === "all") {
       if (stage !== undefined && concept !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.current_stage = $2 AND c.concept_name ILIKE $3
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $4 OFFSET $5`;
-        params = [
-          user_id,
-          parseInt(stage),
-          `%${concept}%`,
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.current_stage = $2 AND c.concept_name ILIKE $3`;
-        countParams = [user_id, parseInt(stage), `%${concept}%`];
+        whereClause += ` AND c.current_stage = $${params.length + 1} AND c.concept_name ILIKE $${params.length + 2}`;
+        params.push(parseInt(stage), `%${concept}%`);
+        countWhereClause += ` AND c.current_stage = $${countParams.length + 1} AND c.concept_name ILIKE $${countParams.length + 2}`;
+        countParams.push(parseInt(stage), `%${concept}%`);
       } else if (stage !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.current_stage = $2
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $3 OFFSET $4`;
-        params = [
-          user_id,
-          parseInt(stage),
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.current_stage = $2`;
-        countParams = [user_id, parseInt(stage)];
+        whereClause += ` AND c.current_stage = $${params.length + 1}`;
+        params.push(parseInt(stage));
+        countWhereClause += ` AND c.current_stage = $${countParams.length + 1}`;
+        countParams.push(parseInt(stage));
       } else if (concept !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.concept_name ILIKE $2
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $3 OFFSET $4`;
-        params = [user_id, `%${concept}%`, parseInt(limit), parseInt(offset)];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.concept_name ILIKE $2`;
-        countParams = [user_id, `%${concept}%`];
-      } else {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $2 OFFSET $3`;
-        params = [user_id, parseInt(limit), parseInt(offset)];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1`;
-        countParams = [user_id];
+        whereClause += ` AND c.concept_name ILIKE $${params.length + 1}`;
+        params.push(`%${concept}%`);
+        countWhereClause += ` AND c.concept_name ILIKE $${countParams.length + 1}`;
+        countParams.push(`%${concept}%`);
       }
+      // No status filter for "all"
     } else if (status === "active") {
       // Active = not_started + inprogress
       const activeStatuses = ["not_started", "inprogress"];
+      whereClause += ` AND c.status = ANY($${params.length + 1})`;
+      params.push(activeStatuses);
+      countWhereClause += ` AND c.status = ANY($${countParams.length + 1})`;
+      countParams.push(activeStatuses);
+
       if (stage !== undefined && concept !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3 AND c.concept_name ILIKE $4
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $5 OFFSET $6`;
-        params = [
-          user_id,
-          activeStatuses,
-          parseInt(stage),
-          `%${concept}%`,
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3 AND c.concept_name ILIKE $4`;
-        countParams = [
-          user_id,
-          activeStatuses,
-          parseInt(stage),
-          `%${concept}%`,
-        ];
+        whereClause += ` AND c.current_stage = $${params.length + 1} AND c.concept_name ILIKE $${params.length + 2}`;
+        params.push(parseInt(stage), `%${concept}%`);
+        countWhereClause += ` AND c.current_stage = $${countParams.length + 1} AND c.concept_name ILIKE $${countParams.length + 2}`;
+        countParams.push(parseInt(stage), `%${concept}%`);
       } else if (stage !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $4 OFFSET $5`;
-        params = [
-          user_id,
-          activeStatuses,
-          parseInt(stage),
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3`;
-        countParams = [user_id, activeStatuses, parseInt(stage)];
+        whereClause += ` AND c.current_stage = $${params.length + 1}`;
+        params.push(parseInt(stage));
+        countWhereClause += ` AND c.current_stage = $${countParams.length + 1}`;
+        countParams.push(parseInt(stage));
       } else if (concept !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = ANY($2) AND c.concept_name ILIKE $3
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $4 OFFSET $5`;
-        params = [
-          user_id,
-          activeStatuses,
-          `%${concept}%`,
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.concept_name ILIKE $3`;
-        countParams = [user_id, activeStatuses, `%${concept}%`];
-      } else {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = ANY($2)
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $3 OFFSET $4`;
-        params = [user_id, activeStatuses, parseInt(limit), parseInt(offset)];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = ANY($2)`;
-        countParams = [user_id, activeStatuses];
+        whereClause += ` AND c.concept_name ILIKE $${params.length + 1}`;
+        params.push(`%${concept}%`);
+        countWhereClause += ` AND c.concept_name ILIKE $${countParams.length + 1}`;
+        countParams.push(`%${concept}%`);
       }
     } else {
       const validStatuses = ["not_started", "inprogress", "completed"];
@@ -1021,70 +997,42 @@ async getChatHistory(req, res, next) {
         });
       }
 
+      whereClause += ` AND c.status = $${params.length + 1}`;
+      params.push(status);
+      countWhereClause += ` AND c.status = $${countParams.length + 1}`;
+      countParams.push(status);
+
       if (stage !== undefined && concept !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3 AND c.concept_name ILIKE $4
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $5 OFFSET $6`;
-        params = [
-          user_id,
-          status,
-          parseInt(stage),
-          `%${concept}%`,
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3 AND c.concept_name ILIKE $4`;
-        countParams = [user_id, status, parseInt(stage), `%${concept}%`];
+        whereClause += ` AND c.current_stage = $${params.length + 1} AND c.concept_name ILIKE $${params.length + 2}`;
+        params.push(parseInt(stage), `%${concept}%`);
+        countWhereClause += ` AND c.current_stage = $${countParams.length + 1} AND c.concept_name ILIKE $${countParams.length + 2}`;
+        countParams.push(parseInt(stage), `%${concept}%`);
       } else if (stage !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $4 OFFSET $5`;
-        params = [
-          user_id,
-          status,
-          parseInt(stage),
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3`;
-        countParams = [user_id, status, parseInt(stage)];
+        whereClause += ` AND c.current_stage = $${params.length + 1}`;
+        params.push(parseInt(stage));
+        countWhereClause += ` AND c.current_stage = $${countParams.length + 1}`;
+        countParams.push(parseInt(stage));
       } else if (concept !== undefined) {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = $2 AND c.concept_name ILIKE $3
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $4 OFFSET $5`;
-        params = [
-          user_id,
-          status,
-          `%${concept}%`,
-          parseInt(limit),
-          parseInt(offset),
-        ];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2 AND c.concept_name ILIKE $3`;
-        countParams = [user_id, status, `%${concept}%`];
-      } else {
-        query = `SELECT ${selectFields} 
-                          ${fromClause}
-                          WHERE c.user_id = $1 AND c.status = $2 
-                          ORDER BY c.updated_at DESC 
-                          LIMIT $3 OFFSET $4`;
-        params = [user_id, status, parseInt(limit), parseInt(offset)];
-        countQuery = `SELECT COUNT(*) as total FROM chat c WHERE c.user_id = $1 AND c.status = $2`;
-        countParams = [user_id, status];
+        whereClause += ` AND c.concept_name ILIKE $${params.length + 1}`;
+        params.push(`%${concept}%`);
+        countWhereClause += ` AND c.concept_name ILIKE $${countParams.length + 1}`;
+        countParams.push(`%${concept}%`);
       }
     }
+
+    // ORDER, LIMIT, OFFSET
+    const orderBy = `ORDER BY c.updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    query = `SELECT ${selectFields} ${fromClause} ${whereClause} ${orderBy}`;
+    countQuery = `SELECT COUNT(DISTINCT c.id) as total ${fromClause} ${countWhereClause}`;  // FIXED: DISTINCT for unique count
 
     const result = await pool.query(query, params);
     const countResult = await pool.query(countQuery, countParams);
 
-    // Add stage display names, include scoring data, and structure user/batch/pod details
+    // Process rows: Parse JSON, add display names, scoring (unchanged)
     const chats = result.rows.map((chat) => {
-      // Parse conversation JSON
+      // Parse conversation JSON if needed
       if (typeof chat.conversation === "string") {
         try {
           chat.conversation = JSON.parse(chat.conversation);
@@ -1118,7 +1066,7 @@ async getChatHistory(req, res, next) {
         pod_name: chat.pod_name || null,
       };
 
-      // Include scoring data if present (for completed chats)
+      // Include scoring data if present (for completed chats) - unchanged
       if (
         chat.status === "completed" &&
         (chat.final_weighted_score !== null ||
@@ -1159,6 +1107,7 @@ async getChatHistory(req, res, next) {
         filter: status,
         stage_filter: stage,
         concept_filter: concept,
+        batch_filter: batch_id || null,  // Added for frontend awareness
         pagination: {
           total,
           limit: parseInt(limit),

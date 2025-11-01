@@ -13,6 +13,7 @@ class practicemodeController {
                 status, 
                 current_stage, 
                 concept_name,
+                batch_id,
                 // Scoring fields (only saved when status is 'completed')
                 scoring_data, // Expected to contain the parsed scoring object from frontend
                 overall_performance,
@@ -33,6 +34,12 @@ class practicemodeController {
                     success: false,
                     error: 'Missing required fields',
                     details: 'user_id and conversation are required'
+                });
+            }
+            if (!batch_id) {
+                return res.status(400).json({
+                    success: false,
+                    error: "batch_id required",
                 });
             }
 
@@ -171,16 +178,17 @@ class practicemodeController {
                 if (finalStatus === 'completed' && Object.values(scoringFields).some(val => val !== null)) {
                     // Insert with scoring data
                     insertQuery = `INSERT INTO practicemode (
-                        user_id, conversation, status, current_stage, concept_name,
+                        user_id, batch_id, conversation, status, current_stage, concept_name,
                         explanation_score, interpretation_score, application_score, perspective_score, 
                         empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                         summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
                         abstract_concrete_score, six_facets_average, understanding_skills_average, final_weighted_score, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) 
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31) 
                     RETURNING id, created_at, updated_at`;
                     
                     insertParams = [
                         user_id, 
+                        batch_id,
                         JSON.stringify(conversation), 
                         finalStatus, 
                         finalStage, 
@@ -215,10 +223,10 @@ class practicemodeController {
 
                 } else {
                     // Insert without scoring data
-                    insertQuery = `INSERT INTO practicemode (user_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary) 
-                                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) 
+                    insertQuery = `INSERT INTO practicemode (user_id, batch_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary) 
+                                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) 
                                    RETURNING id, created_at, updated_at`;
-                    insertParams = [user_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, extracted_overall_performance, extracted_facet_ratings_explanation, extracted_facet_ratings_interpretation, extracted_facet_ratings_application, extracted_facet_ratings_perspective, extracted_facet_ratings_empathy, extracted_facet_ratings_self_knowledge, extracted_key_patterns, extracted_recommended_focus_areas, extracted_personalized_next_steps, extracted_session_summary];
+                    insertParams = [user_id, batch_id, JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, extracted_overall_performance, extracted_facet_ratings_explanation, extracted_facet_ratings_interpretation, extracted_facet_ratings_application, extracted_facet_ratings_perspective, extracted_facet_ratings_empathy, extracted_facet_ratings_self_knowledge, extracted_key_patterns, extracted_recommended_focus_areas, extracted_personalized_next_steps, extracted_session_summary];
                 }
 
                 const insertResult = await client.query(insertQuery, insertParams);
@@ -231,6 +239,7 @@ class practicemodeController {
                 const responseData = {
                     id: newpracticemode.id,
                     user_id,
+                    batch_id,
                     conversation,
                     status: finalStatus,
                     current_stage: finalStage,
@@ -315,7 +324,7 @@ class practicemodeController {
     async getSessionStatus(req, res, next) {
         try {
             const { user_id } = req.params;
-            const { concept_name } = req.query;
+            const { concept_name, batch_id } = req.query;
 
             if (!user_id) {
                 return res.status(400).json({
@@ -329,15 +338,31 @@ class practicemodeController {
 
             let query, params;
 
-            if (concept_name) {
-                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
+           if (concept_name && batch_id) {
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
+                        FROM practicemode 
+                        WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
+                      AND concept_name ILIKE $2 AND batch_id = $3
+                      ORDER BY updated_at DESC 
+                      LIMIT 1`;
+                params = [user_id, `%${concept_name}%`, batch_id];
+            } else if (batch_id) {
+            // ✅ Check for sessions with specific batch only
+            query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
+                      FROM practicemode 
+                      WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND batch_id = $2
+                      ORDER BY updated_at DESC 
+                      LIMIT 1`;
+            params = [user_id, batch_id];
+        } else if (concept_name) {
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
                         FROM practicemode 
                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress') AND concept_name ILIKE $2
                         ORDER BY updated_at DESC 
                         LIMIT 1`;
                 params = [user_id, `%${concept_name}%`];
             } else {
-                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
+                query = `SELECT id, user_id, conversation, status, current_stage, concept_name, batch_id, created_at, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at 
                         FROM practicemode 
                         WHERE user_id = $1 AND status IN ('not_started', 'inprogress') 
                         ORDER BY updated_at DESC 
@@ -437,6 +462,7 @@ class practicemodeController {
         try {
             const { practicemode_id } = req.params;
             const { 
+                batch_id,
                 conversation, 
                 status, 
                 current_stage, 
@@ -462,7 +488,13 @@ class practicemodeController {
                     error: 'Missing required fields: practicemode_id and conversation'
                 });
             }
-
+             
+            if (!batch_id) {
+                return res.status(400).json({
+                    success: false,
+                    error: "batch_id required",
+                });
+            }
             // concept_name validation (optional but if provided should not be empty)
             let finalConceptName = concept_name !== undefined ? (concept_name ? concept_name.trim() : null) : undefined;
             if (finalConceptName === '') {
@@ -611,21 +643,21 @@ class practicemodeController {
                 if (finalStatus === 'completed' && Object.values(scoringFields).some(val => val !== null)) {
                     // Update with scoring data
                     updateQuery = `UPDATE practicemode 
-                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4,
-                                       explanation_score = $5, interpretation_score = $6, application_score = $7, 
-                                       perspective_score = $8, empathy_score = $9, self_knowledge_score = $10,
-                                       asking_questions_score = $11, clarifying_ambiguity_score = $12, 
-                                       summarizing_confirming_score = $13, challenging_ideas_score = $14, 
-                                       comparing_concepts_score = $15, abstract_concrete_score = $16,
-                                       six_facets_average = $17, understanding_skills_average = $18, 
-                                       final_weighted_score = $19, overall_performance = $20, facet_ratings_explanation = $21, 
-                                       facet_ratings_interpretation = $22, facet_ratings_application = $23, 
-                                       facet_ratings_perspective = $24, facet_ratings_empathy = $25, 
-                                       facet_ratings_self_knowledge = $26, key_patterns = $27, 
-                                       recommended_focus_areas = $28, personalized_next_steps = $29, 
-                                       session_summary = $30, updated_at = CURRENT_TIMESTAMP 
-                                   WHERE id = $31 
-                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, 
+                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, batch_id = $5,
+                                       explanation_score = $6, interpretation_score = $7, application_score = $8, 
+                                       perspective_score = $9, empathy_score = $10, self_knowledge_score = $11,
+                                       asking_questions_score = $12, clarifying_ambiguity_score = $13, 
+                                       summarizing_confirming_score = $14, challenging_ideas_score = $15, 
+                                       comparing_concepts_score = $16, abstract_concrete_score = $17,
+                                       six_facets_average = $18, understanding_skills_average = $19, 
+                                       final_weighted_score = $20, overall_performance = $21, facet_ratings_explanation = $22, 
+                                       facet_ratings_interpretation = $23, facet_ratings_application = $24, 
+                                       facet_ratings_perspective = $25, facet_ratings_empathy = $26, 
+                                       facet_ratings_self_knowledge = $27, key_patterns = $28, 
+                                       recommended_focus_areas = $29, personalized_next_steps = $30, 
+                                       session_summary = $31, updated_at = CURRENT_TIMESTAMP 
+                                   WHERE id = $32 
+                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, batch_id,
                                             explanation_score, interpretation_score, application_score, perspective_score, 
                                             empathy_score, self_knowledge_score, asking_questions_score, clarifying_ambiguity_score, 
                                             summarizing_confirming_score, challenging_ideas_score, comparing_concepts_score, 
@@ -640,6 +672,7 @@ class practicemodeController {
                         finalStatus, 
                         finalStage, 
                         finalConceptName,
+                        batch_id,
                         scoringFields.explanation_score,
                         scoringFields.interpretation_score,
                         scoringFields.application_score,
@@ -671,10 +704,10 @@ class practicemodeController {
                 } else {
                     // Update without scoring data
                     updateQuery = `UPDATE practicemode 
-                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, overall_performance = $5, facet_ratings_explanation = $6, facet_ratings_interpretation = $7, facet_ratings_application = $8, facet_ratings_perspective = $9, facet_ratings_empathy = $10, facet_ratings_self_knowledge = $11, key_patterns = $12, recommended_focus_areas = $13, personalized_next_steps = $14, session_summary = $15, updated_at = CURRENT_TIMESTAMP 
-                                   WHERE id = $16 
-                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at`;
-                    updateParams = [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, extracted_overall_performance, extracted_facet_ratings_explanation, extracted_facet_ratings_interpretation, extracted_facet_ratings_application, extracted_facet_ratings_perspective, extracted_facet_ratings_empathy, extracted_facet_ratings_self_knowledge, extracted_key_patterns, extracted_recommended_focus_areas, extracted_personalized_next_steps, extracted_session_summary, parseInt(practicemode_id)];
+                                   SET conversation = $1, status = $2, current_stage = $3, concept_name = $4, batch_id = $5, overall_performance = $6, facet_ratings_explanation = $7, facet_ratings_interpretation = $8, facet_ratings_application = $9, facet_ratings_perspective = $10, facet_ratings_empathy = $11, facet_ratings_self_knowledge = $12, key_patterns = $13, recommended_focus_areas = $14, personalized_next_steps = $15, session_summary = $16, updated_at = CURRENT_TIMESTAMP 
+                                   WHERE id = $17 
+                                   RETURNING id, user_id, conversation, status, current_stage, concept_name, batch_id, overall_performance, facet_ratings_explanation, facet_ratings_interpretation, facet_ratings_application, facet_ratings_perspective, facet_ratings_empathy, facet_ratings_self_knowledge, key_patterns, recommended_focus_areas, personalized_next_steps, session_summary, updated_at`;
+                    updateParams = [JSON.stringify(conversation), finalStatus, finalStage, finalConceptName, batch_id, extracted_overall_performance, extracted_facet_ratings_explanation, extracted_facet_ratings_interpretation, extracted_facet_ratings_application, extracted_facet_ratings_perspective, extracted_facet_ratings_empathy, extracted_facet_ratings_self_knowledge, extracted_key_patterns, extracted_recommended_focus_areas, extracted_personalized_next_steps, extracted_session_summary, parseInt(practicemode_id)];
                 }
 
                 const updateResult = await client.query(updateQuery, updateParams);
@@ -819,272 +852,242 @@ class practicemodeController {
     }
  
     // Get practicemode history with concept_name, scoring data, batch and pod info 
-    async getpracticemodeHistory(req, res, next) {
-        try {
-            const { user_id } = req.params;
-            const { status = 'all', limit = 20, offset = 0, stage, concept } = req.query;
+   // Get practicemode history with concept_name, scoring data, batch and pod info 
+async getpracticemodeHistory(req, res, next) {
+    try {
+        const { user_id } = req.params;
+        const { status = 'all', limit = 20, offset = 0, stage, concept, batch_id } = req.query;
 
-            if (!user_id) {
+        if (!user_id) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required parameter: user_id'
+            });
+        }
+
+        let query, params, countQuery, countParams;
+
+        const selectFields = `c.id, c.user_id, c.conversation, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at,
+                            c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
+                            c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
+                            c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
+                            c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
+                            c.overall_performance, c.facet_ratings_explanation, c.facet_ratings_interpretation, c.facet_ratings_application, 
+                            c.facet_ratings_perspective, c.facet_ratings_empathy, c.facet_ratings_self_knowledge, 
+                            c.key_patterns, c.recommended_focus_areas, c.personalized_next_steps, c.session_summary,
+                            u.username, u.first_name, u.last_name, u.email,
+                            c.batch_id, b.batch_name, pu.pod_id, p.pod_name`;
+
+        // ✅ FIXED FROM CLAUSE: Properly join through pod_users to get pod info
+        const fromClause = `FROM practicemode c 
+                            LEFT JOIN users u ON c.user_id::integer = u.user_id
+                            LEFT JOIN batches b ON c.batch_id = b.batch_id
+                            LEFT JOIN pod_users pu ON c.user_id::integer = pu.user_id AND c.batch_id = pu.batch_id
+                            LEFT JOIN pods p ON pu.pod_id = p.pod_id`;
+
+        // Base WHERE clause
+        let whereClause = `WHERE c.user_id = $1`;
+        params = [user_id];
+        let countWhereClause = `WHERE c.user_id = $1`;
+        countParams = [user_id];
+
+        // ✅ FIXED: Use c.batch_id instead of pu.batch_id
+        if (batch_id) {
+            whereClause += ` AND c.batch_id = $${params.length + 1}`;
+            params.push(parseInt(batch_id));
+            countWhereClause += ` AND c.batch_id = $${countParams.length + 1}`;
+            countParams.push(parseInt(batch_id));
+        }
+
+        if (status === 'all') {
+            if (stage !== undefined && concept !== undefined) {
+                whereClause += ` AND c.current_stage = $${params.length + 1} AND c.concept_name ILIKE $${params.length + 2}`;
+                params.push(parseInt(stage), `%${concept}%`);
+                countWhereClause += ` AND c.current_stage = $${countParams.length + 1} AND c.concept_name ILIKE $${countParams.length + 2}`;
+                countParams.push(parseInt(stage), `%${concept}%`);
+            } else if (stage !== undefined) {
+                whereClause += ` AND c.current_stage = $${params.length + 1}`;
+                params.push(parseInt(stage));
+                countWhereClause += ` AND c.current_stage = $${countParams.length + 1}`;
+                countParams.push(parseInt(stage));
+            } else if (concept !== undefined) {
+                whereClause += ` AND c.concept_name ILIKE $${params.length + 1}`;
+                params.push(`%${concept}%`);
+                countWhereClause += ` AND c.concept_name ILIKE $${countParams.length + 1}`;
+                countParams.push(`%${concept}%`);
+            }
+            // No status filter for "all"
+        } else if (status === 'active') {
+            // Active = not_started + inprogress
+            const activeStatuses = ['not_started', 'inprogress'];
+            whereClause += ` AND c.status = ANY($${params.length + 1})`;
+            params.push(activeStatuses);
+            countWhereClause += ` AND c.status = ANY($${countParams.length + 1})`;
+            countParams.push(activeStatuses);
+
+            if (stage !== undefined && concept !== undefined) {
+                whereClause += ` AND c.current_stage = $${params.length + 1} AND c.concept_name ILIKE $${params.length + 2}`;
+                params.push(parseInt(stage), `%${concept}%`);
+                countWhereClause += ` AND c.current_stage = $${countParams.length + 1} AND c.concept_name ILIKE $${countParams.length + 2}`;
+                countParams.push(parseInt(stage), `%${concept}%`);
+            } else if (stage !== undefined) {
+                whereClause += ` AND c.current_stage = $${params.length + 1}`;
+                params.push(parseInt(stage));
+                countWhereClause += ` AND c.current_stage = $${countParams.length + 1}`;
+                countParams.push(parseInt(stage));
+            } else if (concept !== undefined) {
+                whereClause += ` AND c.concept_name ILIKE $${params.length + 1}`;
+                params.push(`%${concept}%`);
+                countWhereClause += ` AND c.concept_name ILIKE $${countParams.length + 1}`;
+                countParams.push(`%${concept}%`);
+            }
+        } else {
+            const validStatuses = ['not_started', 'inprogress', 'completed'];
+            if (!validStatuses.includes(status)) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Missing required parameter: user_id'
+                    error: 'Invalid status',
+                    message: `Status must be one of: ${validStatuses.join(', ')}, 'active', or 'all'`
                 });
             }
 
-            let query, params, countQuery, countParams;
+            whereClause += ` AND c.status = $${params.length + 1}`;
+            params.push(status);
+            countWhereClause += ` AND c.status = $${countParams.length + 1}`;
+            countParams.push(status);
 
-            // Updated SELECT to include scoring fields, user details, batch and pod info
-            const selectFields = `c.id, c.user_id, c.conversation, c.status, c.current_stage, c.concept_name, c.created_at, c.updated_at,
-                                c.explanation_score, c.interpretation_score, c.application_score, c.perspective_score, 
-                                c.empathy_score, c.self_knowledge_score, c.asking_questions_score, c.clarifying_ambiguity_score, 
-                                c.summarizing_confirming_score, c.challenging_ideas_score, c.comparing_concepts_score, 
-                                c.abstract_concrete_score, c.six_facets_average, c.understanding_skills_average, c.final_weighted_score,
-                                c.overall_performance, c.facet_ratings_explanation, c.facet_ratings_interpretation, c.facet_ratings_application, 
-                                c.facet_ratings_perspective, c.facet_ratings_empathy, c.facet_ratings_self_knowledge, 
-                                c.key_patterns, c.recommended_focus_areas, c.personalized_next_steps, c.session_summary,
-                                u.username, u.first_name, u.last_name, u.email,
-                                pu.batch_id, b.batch_name, p.pod_id, p.pod_name`;
+            if (stage !== undefined && concept !== undefined) {
+                whereClause += ` AND c.current_stage = $${params.length + 1} AND c.concept_name ILIKE $${params.length + 2}`;
+                params.push(parseInt(stage), `%${concept}%`);
+                countWhereClause += ` AND c.current_stage = $${countParams.length + 1} AND c.concept_name ILIKE $${countParams.length + 2}`;
+                countParams.push(parseInt(stage), `%${concept}%`);
+            } else if (stage !== undefined) {
+                whereClause += ` AND c.current_stage = $${params.length + 1}`;
+                params.push(parseInt(stage));
+                countWhereClause += ` AND c.current_stage = $${countParams.length + 1}`;
+                countParams.push(parseInt(stage));
+            } else if (concept !== undefined) {
+                whereClause += ` AND c.concept_name ILIKE $${params.length + 1}`;
+                params.push(`%${concept}%`);
+                countWhereClause += ` AND c.concept_name ILIKE $${countParams.length + 1}`;
+                countParams.push(`%${concept}%`);
+            }
+        }
 
-            // Base FROM clause with JOINs to get batch and pod info
-            const fromClause = `FROM practicemode c 
-                                    LEFT JOIN users u ON c.user_id::integer = u.user_id
-                                    LEFT JOIN pod_users pu ON c.user_id::integer = pu.user_id
-                                    LEFT JOIN batches b ON pu.batch_id = b.batch_id
-                                    LEFT JOIN pods p ON pu.pod_id = p.pod_id`;
+        // ORDER, LIMIT, OFFSET
+       const orderBy = `ORDER BY c.updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        params.push(parseInt(limit), parseInt(offset));
 
-            if (status === 'all') {
-                if (stage !== undefined && concept !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.current_stage = $2 AND c.concept_name ILIKE $3
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $4 OFFSET $5`;
-                    params = [user_id, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.current_stage = $2 AND c.concept_name ILIKE $3`;
-                    countParams = [user_id, parseInt(stage), `%${concept}%`];
-                } else if (stage !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.current_stage = $2
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $3 OFFSET $4`;
-                    params = [user_id, parseInt(stage), parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.current_stage = $2`;
-                    countParams = [user_id, parseInt(stage)];
-                } else if (concept !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.concept_name ILIKE $2
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $3 OFFSET $4`;
-                    params = [user_id, `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.concept_name ILIKE $2`;
-                    countParams = [user_id, `%${concept}%`];
-                } else {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $2 OFFSET $3`;
-                    params = [user_id, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1`;
-                    countParams = [user_id];
-                }
-            } else if (status === 'active') {
-                // Active = not_started + inprogress
-                const activeStatuses = ['not_started', 'inprogress'];
-                if (stage !== undefined && concept !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3 AND c.concept_name ILIKE $4
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $5 OFFSET $6`;
-                    params = [user_id, activeStatuses, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3 AND c.concept_name ILIKE $4`;
-                    countParams = [user_id, activeStatuses, parseInt(stage), `%${concept}%`];
-                } else if (stage !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $4 OFFSET $5`;
-                    params = [user_id, activeStatuses, parseInt(stage), parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.current_stage = $3`;
-                    countParams = [user_id, activeStatuses, parseInt(stage)];
-                } else if (concept !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = ANY($2) AND c.concept_name ILIKE $3
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $4 OFFSET $5`;
-                    params = [user_id, activeStatuses, `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = ANY($2) AND c.concept_name ILIKE $3`;
-                    countParams = [user_id, activeStatuses, `%${concept}%`];
-                } else {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = ANY($2)
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $3 OFFSET $4`;
-                    params = [user_id, activeStatuses, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = ANY($2)`;
-                    countParams = [user_id, activeStatuses];
-                }
-            } else {
-                const validStatuses = ['not_started', 'inprogress', 'completed'];
-                if (!validStatuses.includes(status)) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'Invalid status',
-                        message: `Status must be one of: ${validStatuses.join(', ')}, 'active', or 'all'`
-                    });
-                }
+        query = `SELECT ${selectFields} ${fromClause} ${whereClause} ${orderBy}`;
+        countQuery = `SELECT COUNT(DISTINCT c.id) as total ${fromClause} ${countWhereClause}`;
 
-                if (stage !== undefined && concept !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3 AND c.concept_name ILIKE $4
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $5 OFFSET $6`;
-                    params = [user_id, status, parseInt(stage), `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3 AND c.concept_name ILIKE $4`;
-                    countParams = [user_id, status, parseInt(stage), `%${concept}%`];
-                } else if (stage !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $4 OFFSET $5`;
-                    params = [user_id, status, parseInt(stage), parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = $2 AND c.current_stage = $3`;
-                    countParams = [user_id, status, parseInt(stage)];
-                } else if (concept !== undefined) {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = $2 AND c.concept_name ILIKE $3
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $4 OFFSET $5`;
-                    params = [user_id, status, `%${concept}%`, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = $2 AND c.concept_name ILIKE $3`;
-                    countParams = [user_id, status, `%${concept}%`];
-                } else {
-                    query = `SELECT ${selectFields} 
-                            ${fromClause}
-                            WHERE c.user_id = $1 AND c.status = $2 
-                            ORDER BY c.updated_at DESC 
-                            LIMIT $3 OFFSET $4`;
-                    params = [user_id, status, parseInt(limit), parseInt(offset)];
-                    countQuery = `SELECT COUNT(*) as total FROM practicemode c WHERE c.user_id = $1 AND c.status = $2`;
-                    countParams = [user_id, status];
+        const result = await pool.query(query, params);
+        const countResult = await pool.query(countQuery, countParams);
+
+        // Process rows: Parse JSON, add display names, scoring (unchanged)
+        const practicemodes = result.rows.map(practicemode => {
+            // Parse conversation JSON if needed
+            if (typeof practicemode.conversation === 'string') {
+                try {
+                    practicemode.conversation = JSON.parse(practicemode.conversation);
+                } catch (parseError) {
+                    console.error('Error parsing conversation JSON:', parseError);
                 }
             }
 
-            const result = await pool.query(query, params);
-            const countResult = await pool.query(countQuery, countParams);
+            // Structure user details
+            const user_details = {
+                username: practicemode.username || "",
+                first_name: practicemode.first_name || "",
+                last_name: practicemode.last_name || "",
+                email: practicemode.email || ""
+            };
 
-            // Add stage display names, include scoring data, and structure user/batch/pod details
-            const practicemodes = result.rows.map(practicemode => {
-                // Parse conversation JSON
-                if (typeof practicemode.conversation === 'string') {
-                    try {
-                        practicemode.conversation = JSON.parse(practicemode.conversation);
-                    } catch (parseError) {
-                        console.error('Error parsing conversation JSON:', parseError);
-                    }
-                }
+            const practicemodeData = {
+                id: practicemode.id,
+                user_id: practicemode.user_id,
+                conversation: practicemode.conversation,
+                status: practicemode.status,
+                current_stage: practicemode.current_stage,
+                concept_name: practicemode.concept_name,
+                created_at: practicemode.created_at,
+                updated_at: practicemode.updated_at,
+                stage_display_name: `Stage ${practicemode.current_stage}`,
+                user_details,
+                batch_id: practicemode.batch_id || null,
+                batch_name: practicemode.batch_name || null,
+                pod_id: practicemode.pod_id || null,
+                pod_name: practicemode.pod_name || null,
+                overall_performance: practicemode.overall_performance,
+                facet_ratings_explanation: practicemode.facet_ratings_explanation,
+                facet_ratings_interpretation: practicemode.facet_ratings_interpretation,
+                facet_ratings_application: practicemode.facet_ratings_application,
+                facet_ratings_perspective: practicemode.facet_ratings_perspective,
+                facet_ratings_empathy: practicemode.facet_ratings_empathy,
+                facet_ratings_self_knowledge: practicemode.facet_ratings_self_knowledge,
+                key_patterns: practicemode.key_patterns,
+                recommended_focus_areas: practicemode.recommended_focus_areas,
+                personalized_next_steps: practicemode.personalized_next_steps,
+                session_summary: practicemode.session_summary
+            };
 
-                // Structure user details
-                const user_details = {
-                    username: practicemode.username || "",
-                    first_name: practicemode.first_name || "",
-                    last_name: practicemode.last_name || "",
-                    email: practicemode.email || ""
+            // Include scoring data if present (for completed practicemodes)
+            if (practicemode.status === 'completed' && (practicemode.final_weighted_score !== null || practicemode.six_facets_average !== null)) {
+                practicemodeData.scoring = {
+                    six_facets: {
+                        explanation: practicemode.explanation_score,
+                        interpretation: practicemode.interpretation_score,
+                        application: practicemode.application_score,
+                        perspective: practicemode.perspective_score,
+                        empathy: practicemode.empathy_score,
+                        self_knowledge: practicemode.self_knowledge_score,
+                        average: practicemode.six_facets_average
+                    },
+                    understanding_skills: {
+                        asking_questions: practicemode.asking_questions_score,
+                        clarifying_ambiguity: practicemode.clarifying_ambiguity_score,
+                        summarizing_confirming: practicemode.summarizing_confirming_score,
+                        challenging_ideas: practicemode.challenging_ideas_score,
+                        comparing_concepts: practicemode.comparing_concepts_score,
+                        abstract_concrete: practicemode.abstract_concrete_score,
+                        average: practicemode.understanding_skills_average
+                    },
+                    final_score: practicemode.final_weighted_score
                 };
+            }
 
-                const practicemodeData = {
-                    id: practicemode.id,
-                    user_id: practicemode.user_id,
-                    conversation: practicemode.conversation,
-                    status: practicemode.status,
-                    current_stage: practicemode.current_stage,
-                    concept_name: practicemode.concept_name,
-                    created_at: practicemode.created_at,
-                    updated_at: practicemode.updated_at,
-                    stage_display_name: `Stage ${practicemode.current_stage}`,
-                    user_details,
-                    batch_id: practicemode.batch_id || null,
-                    batch_name: practicemode.batch_name || null,
-                    pod_id: practicemode.pod_id || null,
-                    pod_name: practicemode.pod_name || null,
-                    overall_performance: practicemode.overall_performance,
-                    facet_ratings_explanation: practicemode.facet_ratings_explanation,
-                    facet_ratings_interpretation: practicemode.facet_ratings_interpretation,
-                    facet_ratings_application: practicemode.facet_ratings_application,
-                    facet_ratings_perspective: practicemode.facet_ratings_perspective,
-                    facet_ratings_empathy: practicemode.facet_ratings_empathy,
-                    facet_ratings_self_knowledge: practicemode.facet_ratings_self_knowledge,
-                    key_patterns: practicemode.key_patterns,
-                    recommended_focus_areas: practicemode.recommended_focus_areas,
-                    personalized_next_steps: practicemode.personalized_next_steps,
-                    session_summary: practicemode.session_summary
-                };
+            return practicemodeData;
+        });
 
-                // Include scoring data if present (for completed practicemodes)
-                if (practicemode.status === 'completed' && (practicemode.final_weighted_score !== null || practicemode.six_facets_average !== null)) {
-                    practicemodeData.scoring = {
-                        six_facets: {
-                            explanation: practicemode.explanation_score,
-                            interpretation: practicemode.interpretation_score,
-                            application: practicemode.application_score,
-                            perspective: practicemode.perspective_score,
-                            empathy: practicemode.empathy_score,
-                            self_knowledge: practicemode.self_knowledge_score,
-                            average: practicemode.six_facets_average
-                        },
-                        understanding_skills: {
-                            asking_questions: practicemode.asking_questions_score,
-                            clarifying_ambiguity: practicemode.clarifying_ambiguity_score,
-                            summarizing_confirming: practicemode.summarizing_confirming_score,
-                            challenging_ideas: practicemode.challenging_ideas_score,
-                            comparing_concepts: practicemode.comparing_concepts_score,
-                            abstract_concrete: practicemode.abstract_concrete_score,
-                            average: practicemode.understanding_skills_average
-                        },
-                        final_score: practicemode.final_weighted_score
-                    };
+        const total = parseInt(countResult.rows[0].total, 10);
+
+        res.json({
+            success: true,
+            data: {
+                practicemodes,
+                filter: status,
+                stage_filter: stage,
+                concept_filter: concept,
+                batch_filter: batch_id || null, // Added for frontend awareness
+                pagination: {
+                    total,
+                    limit: parseInt(limit),
+                    offset: parseInt(offset),
+                    hasMore: (parseInt(offset) + parseInt(limit)) < total
                 }
+            }
+        });
 
-                return practicemodeData;
-            });
-
-            const total = parseInt(countResult.rows[0].total, 10);
-
-            res.json({
-                success: true,
-                data: {
-                    practicemodes,
-                    filter: status,
-                    stage_filter: stage,
-                    concept_filter: concept,
-                    pagination: {
-                        total,
-                        limit: parseInt(limit),
-                        offset: parseInt(offset),
-                        hasMore: (parseInt(offset) + parseInt(limit)) < total
-                    }
-                }
-            });
-
-        } catch (error) {
-            console.error('❌ Error fetching practicemode history:', error);
-            return res.status(500).json({
-                success: false,
-                error: 'Database error',
-                message: 'Failed to fetch practicemode history',
-                details: process.env.NODE_ENV === 'development' ? error.message : undefined
-            });
-        }
+    } catch (error) {
+        console.error('❌ Error fetching practicemode history:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Database error',
+            message: 'Failed to fetch practicemode history',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
+}
 
     // Get practicemode by ID with concept_name and scoring data
     async getpracticemodeById(req, res, next) {
