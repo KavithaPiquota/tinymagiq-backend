@@ -106,8 +106,8 @@ const getProgressReport = async (req, res) => {
       JOIN users u ON c.user_id::integer = u.user_id
       JOIN organizations o ON u.organization_id = o.organization_id
       LEFT JOIN batches b ON c.batch_id = b.batch_id
-      LEFT JOIN pod_users pu ON u.user_id = pu.user_id
-      LEFT JOIN pods p ON pu.pod_id = p.pod_id
+      LEFT JOIN pod_users pu ON u.user_id = pu.user_id AND (c.batch_id = pu.batch_id OR c.batch_id IS NULL)
+      LEFT JOIN pods p ON pu.pod_id = p.pod_id AND (c.batch_id = p.batch_id OR c.batch_id IS NULL)
       LEFT JOIN batches pb ON p.batch_id = pb.batch_id
       WHERE c.user_id ~ '^[0-9]+$' -- Ensure user_id is numeric
     `;
@@ -207,6 +207,7 @@ const getProgressReport = async (req, res) => {
     console.log("Number of results:", reports.length);
     console.log("Unique user_ids found:", [...new Set(reports.map(r => r.user_id))]);
     console.log("Batch names found:", [...new Set(reports.map(r => r.batch_name).filter(Boolean))]);
+    console.log("Pod names found:", [...new Set(reports.map(r => r.pod_name).filter(Boolean))]);
     console.log("=============================================");
 
     res.json({
