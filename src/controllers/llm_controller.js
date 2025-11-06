@@ -158,6 +158,17 @@ const addModel = async (req, res) => {
         });
       }
     }
+    const nameExists = await pool.query(
+  "SELECT 1 FROM llm_models WHERE name = $1",
+  [name]
+);
+if (nameExists.rows.length > 0) {
+  return res.status(409).json({
+    success: false,
+    error: "Conflict",
+    message: `Model name '${name}' already exists. Choose a different name.`,
+  });
+}
 
     // Check if name is already used globally
     const globalNameCheck = await pool.query(
