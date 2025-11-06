@@ -46,6 +46,7 @@ const transcribeAudio = async (req, res) => {
       file: new File([req.file.buffer], "audio.webm", { type: "audio/webm" }),
       model: "gpt-4o-transcribe",       // ✅ FASTEST model
       language: "en",
+      task:"translate"
     });
 
     let text = transcription.text?.trim() || "";
