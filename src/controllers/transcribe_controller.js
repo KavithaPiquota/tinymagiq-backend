@@ -44,7 +44,7 @@ const bufferToStream = (buffer) => {
   return stream;
 };
 
-// 🔹 Noise reduction via ffmpeg (in memory)
+// 🔹 Noise reduction via ffmpeg (in memory) - Updated filters
 const denoiseAudio = (inputBuffer) => {
   return new Promise((resolve, reject) => {
     const inputStream = bufferToStream(inputBuffer);
@@ -53,13 +53,15 @@ const denoiseAudio = (inputBuffer) => {
 
     ffmpeg(inputStream)
       // Apply filters:
-      //  - afftdn: basic noise reduction
+      //  - highpass: cut low-frequency rumble
+      //  - afftdn: noise reduction
       //  - loudnorm: normalize volume
-      //  - silenceremove: trim silence
+      //  - silenceremove: trim silence (tighter params)
       .audioFilters([
-        "afftdn=nf=-25",
-        "loudnorm",
-        "silenceremove=stop_periods=-1:stop_duration=1:stop_threshold=-40dB"
+        "highpass=f=80",
+        "afftdn=nf=-30",
+        "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "silenceremove=stop_periods=-1:stop_duration=0.5:stop_threshold=-50dB:start_periods=1:start_duration=0.5:start_threshold=-40dB"
       ])
       .audioCodec("pcm_s16le")
       .format("wav")
@@ -71,16 +73,20 @@ const denoiseAudio = (inputBuffer) => {
   });
 };
 
+// Updated: RMS-based speech detection
 const hasSpeech = (buffer) => {
   // Remove WAV header (44 bytes) to get raw PCM 16-bit samples
   const pcmBuffer = buffer.slice(44);
-  let sum = 0;
+  if (pcmBuffer.length < 16000) return false;  // Min ~1s at 16kHz
+
+  let sumSquares = 0;
   for (let i = 0; i < pcmBuffer.length; i += 2) {
     const val = pcmBuffer.readInt16LE(i);
-    sum += Math.abs(val);
+    sumSquares += val * val;
   }
-  const avgLevel = sum / (pcmBuffer.length / 2);
-  return avgLevel > 700; // You can experiment with 500/700/900 as needed
+  const rms = Math.sqrt(sumSquares / (pcmBuffer.length / 2));  // RMS for energy
+  const avgRms = rms / 32768;  // Normalize to 0-1 range (16-bit)
+  return avgRms > 0.02;  // Tune: 0.01-0.05; lower for quiet speech, higher to avoid noise
 };
 
 const transcribeAudio = async (req, res) => {
@@ -120,12 +126,25 @@ const transcribeAudio = async (req, res) => {
       file: new File([cleanedBuffer], "audio.wav", { type: "audio/wav" }),
       model: "whisper-1",
       language: "en",
-      task: "translate",
+      task: "transcribe",
     });
 
     let resultTxt = transcription.text.trim();
-    // Filter undesirable hallucination outputs
-    if (resultTxt.length < 6 || /^(thank you|bye|okay|silence|sure)\b/i.test(resultTxt)) {
+    const usedPrompt = "Transcribe clear English speech. Ignore background noise or silence.";  // Empty since no prompt
+    if (usedPrompt) {
+      const promptRegex = new RegExp(usedPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      resultTxt = resultTxt.replace(promptRegex, '').trim();
+    }
+
+    const hallucinationPatterns = [
+      /^(thank you|bye|okay|silence|sure|hello|uh|um)\b/i,
+      /^\.{3,}$/,  // Excessive pauses
+      /^[\?\!\.]{3,}$/,  // Excessive punctuation
+      /(.)\1{5,}/  // Repetitions (e.g., "aaaaa")
+    ];
+    const isHallucination = hallucinationPatterns.some(pattern => pattern.test(resultTxt)) || resultTxt.length < 6;
+
+    if (isHallucination) {
       resultTxt = "";
     }
 
