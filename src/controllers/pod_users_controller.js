@@ -641,110 +641,95 @@ const getOrguserDetails = async (req, res) => {
   const { first_name, last_name } = req.query;
 
   try {
-    const user = await getUserIdByIdentifier(identifier, first_name, last_name);
-    
-    // Get ALL pod assignments for this user
+    // Step 1: Get the target user (this already ensures they are orguser)
+    const targetUser = await getUserIdByIdentifier(identifier, first_name, last_name);
+
+    // Step 2: IDOR Protection - Only allow orguser to view their own data
+    if (req.user.role === "orguser" && req.user.user_id !== targetUser.user_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You are not allowed to view other users' details",
+      });
+    }
+
+    // Step 3: Proceed to fetch pod, batch, progress (same as before)
     const podUserResult = await pool.query(
-      "SELECT pu.pod_user_id, pu.pod_id, pu.batch_id, pu.created_at AS pod_assigned_at " +
-        "FROM pod_users pu WHERE pu.user_id = $1 ORDER BY pu.created_at DESC",
-      [user.user_id]
+      "SELECT pu.pod_user_id, pu.pod_id, pu.created_at AS pod_assigned_at " +
+        "FROM pod_users pu WHERE pu.user_id = $1",
+      [targetUser.user_id]
     );
 
     let responseData = {
       user: {
-        user_id: user.user_id,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        username: user.username,
+        user_id: targetUser.user_id,
+        first_name: targetUser.first_name,
+        last_name: targetUser.last_name,
+        email: targetUser.email,
+        username: targetUser.username,
       },
       pod: null,
       batch: null,
       progress: [],
-      batches: [], // NEW: Array with batch info + pod info
     };
 
     if (podUserResult.rows.length > 0) {
-      const allProgressResult = await pool.query(
-        "SELECT concept_id, status, updated_at FROM user_concept_progress WHERE user_id = $1",
-        [user.user_id]
+      const podUser = podUserResult.rows[0];
+      const podResult = await pool.query(
+        `SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, 
+                o.organization_id, o.organization_name, 
+                u.user_id AS mentor_id, u.first_name AS mentor_first_name, 
+                u.last_name AS mentor_last_name, u.email AS mentor_email 
+         FROM pods p 
+         JOIN batches b ON p.batch_id = b.batch_id 
+         JOIN organizations o ON p.organization_id = o.organization_id 
+         JOIN users u ON p.mentor_id = u.user_id 
+         WHERE p.pod_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE`,
+        [podUser.pod_id]
       );
-      responseData.progress = allProgressResult.rows;
 
-      for (let i = 0; i < podUserResult.rows.length; i++) {
-        const podUser = podUserResult.rows[i];
-        
-        const podResult = await pool.query(
-          "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_id, o.organization_name " +
-            "FROM pods p " +
-            "JOIN batches b ON p.batch_id = b.batch_id " +
-            "JOIN organizations o ON p.organization_id = o.organization_id " +
-            "WHERE p.pod_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
-          [podUser.pod_id]
+      if (podResult.rows.length > 0) {
+        const pod = podResult.rows[0];
+        const batchConcepts = await pool.query(
+          `SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, 
+                  c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, 
+                  c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, 
+                  c.concept_understanding_rubric, c.understanding_skills_rubric, 
+                  c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at 
+           FROM concepts c 
+           JOIN batch_concepts bc ON c.concept_id = bc.concept_id 
+           WHERE bc.batch_id = $1 ORDER BY bc.sequence_order`,
+          [pod.batch_id]
+        );
+        const progressResult = await pool.query(
+          "SELECT concept_id, status, updated_at FROM user_concept_progress WHERE user_id = $1",
+          [targetUser.user_id]
         );
 
-        if (podResult.rows.length > 0) {
-          const pod = podResult.rows[0];
-
-          const batchConcepts = await pool.query(
-            "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.learning_objective, c.level_1_name, c.level_1_description, c.level_2_name, c.level_2_description, c.level_3_name, c.level_3_description, c.level_4_name, c.level_4_description, c.level_5_name, c.level_5_description, c.number_of_scenarios, c.facet_focus, c.introduction_context, c.progression_description, c.task_questions, c.reflection_questions, c.strength_checklist, c.is_active, c.updated_at " +
-              "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
-            [pod.batch_id]
-          );
-
-          const mentorResult = await pool.query(
-            `SELECT u.user_id, u.first_name, u.last_name, u.email, u.username 
-             FROM pod_mentors pm 
-             JOIN users u ON pm.mentor_id = u.user_id 
-             JOIN roles r ON u.role_id = r.role_id 
-             WHERE pm.pod_id = $1 AND r.role = 'mentor'`,
-            [pod.pod_id]
-          );
-
-          // NEW STRUCTURE: batch info at top level with pod nested inside
-          const batchData = {
-            batch_id: pod.batch_id,
-            batch_name: pod.batch_name,
-            batch_size: pod.batch_size,
-            is_active: pod.batch_is_active,
-            organization_id: pod.organization_id,
-            organization_name: pod.organization_name,
-            concepts: batchConcepts.rows,
-            pod: {
-              pod_user_id: podUser.pod_user_id,
-              pod_id: pod.pod_id,
-              pod_name: pod.pod_name,
-              pod_is_active: pod.is_active,
-              pod_created_at: pod.created_at,
-              pod_assigned_at: podUser.pod_assigned_at,
-              mentors: mentorResult.rows,
-            },
-          };
-
-          responseData.batches.push(batchData);
-
-          // First assignment goes to top level for backward compatibility
-          if (i === 0) {
-            responseData.pod = {
-              pod_user_id: podUser.pod_user_id,
-              pod_id: pod.pod_id,
-              pod_name: pod.pod_name,
-              is_active: pod.is_active,
-              created_at: pod.created_at,
-              pod_assigned_at: podUser.pod_assigned_at,
-              mentors: mentorResult.rows,
-            };
-            responseData.batch = {
-              batch_id: pod.batch_id,
-              batch_name: pod.batch_name,
-              batch_size: pod.batch_size,
-              is_active: pod.batch_is_active,
-              organization_id: pod.organization_id,
-              organization_name: pod.organization_name,
-              concepts: batchConcepts.rows,
-            };
-          }
-        }
+        responseData.pod = {
+          pod_user_id: podUser.pod_user_id,
+          pod_id: pod.pod_id,
+          pod_name: pod.pod_name,
+          is_active: pod.is_active,
+          created_at: pod.created_at,
+          pod_assigned_at: podUser.pod_assigned_at,
+          mentor: {
+            user_id: pod.mentor_id,
+            first_name: pod.mentor_first_name,
+            last_name: pod.mentor_last_name,
+            email: pod.mentor_email,
+          },
+        };
+        responseData.batch = {
+          batch_id: pod.batch_id,
+          batch_name: pod.batch_name,
+          batch_size: pod.batch_size,
+          is_active: pod.batch_is_active,
+          organization_id: pod.organization_id,
+          organization_name: pod.organization_name,
+          concepts: batchConcepts.rows,
+        };
+        responseData.progress = progressResult.rows;
       }
     }
 
