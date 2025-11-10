@@ -639,20 +639,32 @@ const getOrguserDetails = async (req, res) => {
   const { first_name, last_name } = req.query;
 
   try {
-    const user = await getUserIdByIdentifier(identifier, first_name, last_name);
+    // Step 1: Get the target user (this already ensures they are orguser)
+    const targetUser = await getUserIdByIdentifier(identifier, first_name, last_name);
+
+    // Step 2: IDOR Protection - Only allow orguser to view their own data
+    if (req.user.role === "orguser" && req.user.user_id !== targetUser.user_id) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You are not allowed to view other users' details",
+      });
+    }
+
+    // Step 3: Proceed to fetch pod, batch, progress (same as before)
     const podUserResult = await pool.query(
       "SELECT pu.pod_user_id, pu.pod_id, pu.created_at AS pod_assigned_at " +
         "FROM pod_users pu WHERE pu.user_id = $1",
-      [user.user_id]
+      [targetUser.user_id]
     );
 
     let responseData = {
       user: {
-        user_id: user.user_id,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        username: user.username,
+        user_id: targetUser.user_id,
+        first_name: targetUser.first_name,
+        last_name: targetUser.last_name,
+        email: targetUser.email,
+        username: targetUser.username,
       },
       pod: null,
       batch: null,
@@ -662,25 +674,34 @@ const getOrguserDetails = async (req, res) => {
     if (podUserResult.rows.length > 0) {
       const podUser = podUserResult.rows[0];
       const podResult = await pool.query(
-        "SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, o.organization_id, o.organization_name, u.user_id AS mentor_id, u.first_name AS mentor_first_name, u.last_name AS mentor_last_name, u.email AS mentor_email " +
-          "FROM pods p " +
-          "JOIN batches b ON p.batch_id = b.batch_id " +
-          "JOIN organizations o ON p.organization_id = o.organization_id " +
-          "JOIN users u ON p.mentor_id = u.user_id " +
-          "WHERE p.pod_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE",
+        `SELECT p.*, b.batch_name, b.batch_size, b.is_active AS batch_is_active, 
+                o.organization_id, o.organization_name, 
+                u.user_id AS mentor_id, u.first_name AS mentor_first_name, 
+                u.last_name AS mentor_last_name, u.email AS mentor_email 
+         FROM pods p 
+         JOIN batches b ON p.batch_id = b.batch_id 
+         JOIN organizations o ON p.organization_id = o.organization_id 
+         JOIN users u ON p.mentor_id = u.user_id 
+         WHERE p.pod_id = $1 AND p.is_active = TRUE AND b.is_active = TRUE`,
         [podUser.pod_id]
       );
 
       if (podResult.rows.length > 0) {
         const pod = podResult.rows[0];
         const batchConcepts = await pool.query(
-          "SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, c.concept_understanding_rubric, c.understanding_skills_rubric, c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at " +
-            "FROM concepts c JOIN batch_concepts bc ON c.concept_id = bc.concept_id WHERE bc.batch_id = $1 ORDER BY bc.sequence_order",
+          `SELECT c.concept_id, c.concept_name, c.concept_content, c.concept_enduring_understandings, 
+                  c.concept_essential_questions, c.concept_knowledge_skills, c.stage_1_content, 
+                  c.stage_2_content, c.stage_3_content, c.stage_4_content, c.stage_5_content, 
+                  c.concept_understanding_rubric, c.understanding_skills_rubric, 
+                  c.learning_assessment_dimensions, c.download_link, c.is_active, c.updated_at 
+           FROM concepts c 
+           JOIN batch_concepts bc ON c.concept_id = bc.concept_id 
+           WHERE bc.batch_id = $1 ORDER BY bc.sequence_order`,
           [pod.batch_id]
         );
         const progressResult = await pool.query(
           "SELECT concept_id, status, updated_at FROM user_concept_progress WHERE user_id = $1",
-          [user.user_id]
+          [targetUser.user_id]
         );
 
         responseData.pod = {
